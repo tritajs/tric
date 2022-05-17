@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Compiler Value="C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe" Date="1411537227"/>
+  <Params Value=" -MObjFPC -Scghi -O1 -g -gl -l -vewnhibq -FuC:\lazarus\packager\units\x86_64-win64 -FuC:\lazarus\components\lazutils\lib\x86_64-win64 -FuC:\lazarus\components\freetype\lib\x86_64-win64 -FuC:\lazarus\lcl\units\x86_64-win64 -FuC:\lazarus\lcl\units\x86_64-win64\win32 -FuC:\lazarus\components\synedit\units\x86_64-win64\win32 &quot;-FuC:\Programmi Ufficio\NewCompLazarus\uib30\source\lib&quot; &quot;-FuC:\Programmi Ufficio\NewCompLazarus\tric\edit\lib\x86_64-win64&quot; &quot;-FuC:\Programmi Ufficio\NewCompLazarus\tric\&quot; &quot;-FUC:\Programmi Ufficio\NewCompLazarus\tric\lib\x86_64-win64\&quot; -dLCL -dLCLwin32 trita.pas"/>
+</CONFIG>

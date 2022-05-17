@@ -1,0 +1,341 @@
+unit WTComboBoxSql;
+
+interface
+
+uses
+
+  {$IFDEF FPC}   LCLIntf, LCLType, lMessages, lresources, {$ELSE}   Windows, Variants,Messages, {$ENDIF}
+    SysUtils, Classes, Graphics, Controls, Forms,   StdCtrls,
+   Dialogs,  LSystemTrita,  Buttons, ExtCtrls, uib;
+
+
+type
+
+  { TWTComboBoxSql }
+
+  TWTComboBoxSql = class(TComboBox)
+  private
+    FReadOnly: Boolean;
+    Fsql: TStrings;
+    FIBsql          : TUIBQuery;//     TIBQuery ;
+    Ftable          : string;
+    FValueField     : String;
+    FLookField      : String;
+    FLookDisplay    : String;
+    FAttrib: TAttrib;
+    FComboBoxColor: Tcolor;
+    FShowFocusColor: boolean;
+    FFocusColor: TColor;
+    procedure CMEnter(var Message: TCMEnter); message CM_ENTER;
+    procedure CMExit (var Message: TCMExit ); message CM_EXIT;
+    procedure CNCommand(var TheMessage: TLMCommand); message CN_Command;
+    function  GetDatabase: TUIBDataBase;
+    function  GetTransaction: TUIBTransaction;
+    function  FillListBox:Boolean; //restituisce true se sono stati trovati > 1 record
+    procedure SetDatabase(const Value: TUIBDataBase);
+    procedure SetReadOnly(AValue: Boolean);
+    procedure Setsql(AValue: TStrings);
+    procedure SqlChange(Sender : TObject);
+    procedure SetTransaction(const Value: TUIBTransaction);
+    procedure SetLookDisplay(const Value: String);
+    procedure SetLookField(const Value: String);
+  protected
+    procedure Select;override;
+    procedure DoExit; override;
+    function  FindFieldValue(RecordPos:Integer; FieldName:string):string;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
+  public
+    constructor Create ( AOwner : TComponent ); override;
+    procedure   CreateWnd; override;
+    destructor  Destroy; override;
+    function    FindField(FieldName:string):string;
+    procedure   UpdateRicerca(field:string); //Riaggiorna la ricerca in base al valore del campo edit
+    procedure   UpdatedList; // riesegue la ricerca in base al valore dell'edit
+
+  published
+    property  Attrib:TAttrib read FAttrib write FAttrib default DefaultAattrib;
+    property  Table:string read Ftable write Ftable ;
+    property  Sql:TStrings Read Fsql write Setsql;
+    property  Database: TUIBDataBase       read GetDatabase write SetDatabase;
+    property  Transaction: TUIBTransaction read GetTransaction write SetTransaction;
+    property  ValueLookField: String  read FValueField write FValueField ;
+    property  LookField: String   read FLookField   Write SetLookField;
+    property  LookDisplay: String read FLookDisplay Write SetLookDisplay;
+    property  ShowFocusColor:boolean read FShowFocusColor write FShowFocusColor;
+    property  FocusColor:TColor read FFocusColor write FFocusColor;
+    property  ReadOnly: Boolean read FReadOnly write SetReadOnly;
+end;
+
+ procedure Register;
+
+implementation
+
+
+{ TWTComboBoxSql }
+
+constructor TWTComboBoxSql.Create(AOwner: TComponent);
+begin
+ 	inherited Create( AOwner );
+        DroppedDown:= False;
+        height := 24;
+        CharCase:= ecUppercase;
+        FAttrib   :=  DefaultAattrib;
+      	Fsql   := TStringList.Create;
+        TStringList(Fsql).OnChange :=@SqlChange;
+        FIBsql:=  TUIBQuery.Create(self);            //TIBQuery.Create(Self);
+        FFocusColor:= $00F7E0D5;
+        FShowFocusColor:= True;
+        Style:= csSimple;
+        Items.Clear;
+end;
+
+procedure TWTComboBoxSql.CreateWnd;
+begin
+  inherited CreateWnd;
+  Self.Text:='';
+end;
+
+destructor TWTComboBoxSql.Destroy;
+begin
+ FIBsql.Free;
+ Fsql.Free;
+ inherited Destroy;
+end;
+
+procedure TWTComboBoxSql.CMEnter(var Message: TCMEnter);
+begin
+   inherited;
+   if FShowFocusColor then
+    begin
+     FComboBoxColor:= Self.Color;
+     Self.Color:= FFocusColor;
+    end;
+end;
+
+procedure TWTComboBoxSql.CMExit(var Message: TCMExit);
+begin
+   if FShowFocusColor then
+     self.Color:= FComboBoxColor;
+   inherited;
+end;
+
+procedure TWTComboBoxSql.CNCommand(var TheMessage: TLMCommand);
+begin
+  ShowMessage(Text + inttostr(Items.Count) + ' ' + Items.Text);
+  if (TheMessage.NotifyCode = CBN_DROPDOWN) and (not FReadOnly) then
+   if  (Text = '') or (Items.Text = '')  then
+     begin
+       if FillListBox then
+         DroppedDown:=True;
+     end;
+end;
+
+function TWTComboBoxSql.GetDatabase: TUIBDataBase;
+begin
+ result :=  FIBsql.Database;
+end;
+
+function TWTComboBoxSql.GetTransaction: TUIBTransaction;
+begin
+ result :=  FIBsql.Transaction;
+end;
+
+
+procedure TWTComboBoxSql.SetDatabase(const Value: TUIBDataBase);
+begin
+ FIBsql.Database:= Value;
+end;
+
+procedure TWTComboBoxSql.SetReadOnly(AValue: Boolean);
+begin
+  if FReadOnly=AValue then Exit;
+   FReadOnly:=AValue;
+end;
+
+
+procedure TWTComboBoxSql.Setsql(AValue: TStrings);
+begin
+  Fsql.Assign(AValue);
+end;
+
+procedure TWTComboBoxSql.SqlChange(Sender: TObject);
+begin
+ FIBsql.SQL.Assign(Fsql);
+end;
+
+
+procedure TWTComboBoxSql.SetTransaction(const Value: TUIBTransaction);
+begin
+ FIBsql.Transaction:= Value;
+end;
+
+
+procedure TWTComboBoxSql.SetLookDisplay(const Value: String);
+begin
+  FLookDisplay := Value;
+end;
+
+procedure TWTComboBoxSql.SetLookField(const Value: String);
+begin
+  FLookField := Value;
+end;
+
+procedure TWTComboBoxSql.select;
+begin
+  inherited select;
+  if ItemIndex > -1 then
+   begin
+     FIBsql.Fields.CurrentRecord:= ItemIndex;
+     ValueLookField:= FIBsql.Fields.ByNameAsString[FLookField];
+     Text:= FIBsql.Fields.ByNameAsString[FLookDisplay];
+     TForm(Owner).SelectNext(Self,True,true);
+   end;
+end;
+
+
+function TWTComboBoxSql.FindFieldValue(RecordPos: Integer;
+  FieldName: string): string;
+begin
+ //incremento di uno RecordPos in quanto la ListBox ha l'indice che inizia per 0
+// Inc(RecordPos);
+ FIBsql.Open;
+ while not FIBsql.Eof do
+  begin
+   if FIBsql.Fields.CurrentRecord = RecordPos then
+    begin
+     result:= FIBsql.Fields.ByNameAsString[FieldName];
+     Break;
+    end;
+   FIBsql.Next;
+  end;
+end;
+
+procedure TWTComboBoxSql.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+inherited KeyDown(Key, Shift);
+ if (not FReadOnly) then
+   begin
+    if (Key = 27) then
+      begin
+        ValueLookField:= '';
+        Text:='';
+     end
+    else if (Key = 13) then
+     begin
+      if FillListBox then
+        DroppedDown:=True;
+     end
+    else
+      ValueLookField:= ''; // ogni volta che inserisco un carattere cancello il valore
+                            // contenuto in valuelookfield
+   end
+ else
+   if key <> 9 then key := 0;
+end;
+
+
+procedure TWTComboBoxSql.KeyUp(var Key: Word; Shift: TShiftState);
+begin
+ if (not FReadOnly) then
+   begin
+    inherited KeyUp(Key, Shift);
+     if key = 13 then
+      DroppedDown:=True;
+   end;
+end;
+
+
+function TWTComboBoxSql.FillListBox:boolean;
+begin
+ result := False;
+ // controlla l'inserimento del comando SQL
+ if FIBsql.SQL.Text <> '' then
+  begin
+    Items.Clear;
+   //se esistone dei parametri esegue una ricerca con parametri
+   if FIBsql.Params.FieldCount > 0 then FIBsql.Params.AsString[0]:= Text;
+   // trova la posizione del campo da visualizzare
+   FIBsql.Open;
+   // se sono statitrovati dei records
+   if FIBsql.Fields.RecordCount > 0 then
+    begin
+      while not FIBsql.EOF do
+       begin
+        Items.Add(FIBsql.Fields.ByNameAsString[FLookDisplay]);
+        FIBsql.Next;
+       end;
+     // controlla s'è stato trovato solo un record
+     if Items.Count > 1 then
+        result := True
+     else
+       begin
+         Text:= FIBsql.Fields.ByNameAsString[FLookDisplay];
+         ValueLookField:= FIBsql.Fields.ByNameAsString[FLookField];
+         TForm(Owner).SelectNext(Self,True,true);
+       end
+    end
+   else
+     ShowMessage('Dato Non Presente In Archivio');
+  end;
+end;
+
+
+function TWTComboBoxSql.FindField(FieldName: string): string;
+begin
+   Try
+    if Text <> '' then // se nel campo edit del CB c'è un valore lo ricerco
+      Result:=  FIBsql.Fields.ByNameAsString[FieldName]
+    else
+      Result:= '';
+   except
+    ShowMessage('Il campo cercato non è presente nella richiesta sql');
+   end;
+end;
+
+procedure TWTComboBoxSql.DoExit;
+begin
+ // se hai inserito una stringa e utilizzi il tasto tab per uscire, ricerco il dato inserito
+  if (FValueField = '') and (Text <> '') then
+   begin
+     // Controllo se il dato in uscita è un dato contenente in archivio
+     if FillListBox then
+        DroppedDown:=True
+     else
+        DroppedDown:=False;
+   end;
+inherited DoExit;
+end;
+
+
+// se esiste un valore nel campo edit lo ricerca automaticamente
+procedure TWTComboBoxSql.UpdateRicerca(field:string);
+begin
+   Text := field;
+   FIBsql.Close;
+   //se esistone dei parametri esegue una ricerca con parametri
+   if FIBsql.Params.FieldCount > 0 then FIBsql.Params.AsString[0]:= field;
+   // trova la posizione del campo da visualizzare
+      FIBsql.Open;
+      if FIBsql.Fields.RecordCount > 0 then
+        begin
+          ValueLookField:= FIBsql.Fields.ByNameAsString[FLookField];
+          Text:= FIBsql.Fields.ByNameAsString[FLookDisplay];
+          Change;
+        end;
+end;
+
+//effettuo una nuova ricerca con il valorere dell'edit
+procedure TWTComboBoxSql.UpdatedList;
+begin
+  FillListBox;
+end;
+
+
+
+procedure Register;
+begin
+  RegisterComponents('Trita', [TWTComboBoxSql]);
+end;
+
+end.

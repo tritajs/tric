@@ -1,0 +1,27 @@
+{ This file was automatically created by Lazarus. Do not edit!
+  This source is only used to compile and install the package.
+ }
+
+unit trita;
+
+interface
+
+uses
+  WTComboBox, WTCheckBox, WTComboBoxSql, WTMemo, wtList, wtEditComp, 
+  WtSGSqlUpdate, LazarusPackageIntf;
+
+implementation
+
+procedure Register;
+begin
+  RegisterUnit('WTComboBox', @WTComboBox.Register);
+  RegisterUnit('WTCheckBox', @WTCheckBox.Register);
+  RegisterUnit('WTComboBoxSql', @WTComboBoxSql.Register);
+  RegisterUnit('WTMemo', @WTMemo.Register);
+  RegisterUnit('wtEditComp', @wtEditComp.Register);
+  RegisterUnit('WtSGSqlUpdate', @WtSGSqlUpdate.Register);
+end;
+
+initialization
+  RegisterPackage('trita', @Register);
+end.

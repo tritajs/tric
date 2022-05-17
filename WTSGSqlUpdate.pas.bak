@@ -1,0 +1,370 @@
+unit WTSGSqlUpdate;
+{$mode objfpc}{$H+}
+
+interface
+
+uses
+  SysUtils, Classes, Controls, Grids,
+  {$IFDEF MSWINDOWS} Windows,Variants, {$ENDIF} Dialogs,LSystemTrita,UIB, Menus, wtList ,
+  LCLType,WTStringGridSql;
+
+type
+  TOldCellValue = record
+   Row:integer;
+   Col:integer;
+   Value:String;
+  end;
+  Toperazione = (OpBrowse,OpInsert,OpEdit, OpDelete);
+  TStatoUpdateKind = (stInsert,stEdit,stDelete);
+  TStatoUpdate = set of TStatoUpdateKind;
+  TDataEntry =  procedure (Sender: Tobject; Operazione:Toperazione; const ARow: Integer;
+                          var Fields: TwtListField; var where:string) of object;     // Puntatore a metodo
+  TAfterInsert= procedure (Sender: Tobject; Operazione:Toperazione) of object;
+
+  { TwtSGSqlUpdate }
+
+  TwtSGSqlUpdate = class(TwtStringGridSql)
+  private
+    FIBsqlPost: TUIBQuery;  //oggetto che servirà per modificare il recordo
+    FOldCellValue:TOldCellValue; // contiene il valore della cella prima della modifica
+    Foperazione : Toperazione;
+    FStatoUpdate: TStatoUpdate;
+    FDataentry:   TDataEntry;
+    FAfterInsert: TAfterInsert;
+    Fwhere:string;
+    function  UpDateDB:Boolean; // Modifica i dati della tabella
+    function  InsertDB:Boolean; //Inserisce i dati nella tabella
+//    function  EseguiSql(st,errore:string):Boolean;
+    procedure SetStatoUpdate(const Value: TStatoUpdate);
+    { Private declarations }
+  protected
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyPress(var Key: Char); override;
+    procedure InsertPopMenu (Sender: TObject);
+    procedure DeletePopMenu (Sender: TObject);
+    procedure DoExit; override;
+    procedure DoDataEntry(operazione:Toperazione; const ARow: Integer;
+              var Fields: TwtListField; var where:string);
+    procedure DoAfterInsert(operazione:Toperazione);
+    procedure SetEditText(ACol, ARow: Longint; const Value: string); override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState;
+      X: Integer; Y: Integer); override;
+    { Protected declarations }
+  public
+     constructor Create (AOwner: TComponent); override;
+     procedure   CreateWnd; override;
+    destructor  Destroy; override;
+    { Public declarations }
+  published
+    property StatoUpdate:TStatoUpdate read FStatoUpdate write SetStatoUpdate default [StInsert,StEdit,StDelete];
+    property OnDataEntry: TDataEntry read FDataentry write FDataEntry;
+    property OnAfterInsert: TAfterInsert read FAfterInsert write FAfterInsert;
+    { Published declarations }
+  end;
+
+procedure Register;
+implementation
+
+
+
+{ TwtSGSqlUpdate }
+
+constructor TwtSGSqlUpdate.Create(AOwner: TComponent);
+Var FpopUp: TPopupMenu;
+    FInsert,FDelete: TMenuItem;
+begin
+  inherited Create (AOwner);
+  FIBsqlPost:=  TUIBQuery.Create(self);            //TIBQuery.Create(Self);
+  Options:= Options + [goEditing,goTabs];
+  Foperazione:= OpBrowse;
+  StatoUpdate := StatoUpdate + [StInsert,StEdit,StDelete];
+  FixedCols:= 0;
+  RowCount := 2;
+	// Create PopUp
+	FPopUp 			:= TPopupMenu.Create(self);
+	FInsert 	        := TMenuItem.Create( FPopUp );
+	FInsert.Caption 	:= 'Inserisci Record';
+  FInsert.OnClick :=@InsertPopMenu;
+	FDelete 	        :=  TMenuItem.Create( FPopUp );
+	FDelete.Caption 	:= 'Cancella Record';
+  FDelete.OnClick   :=@DeletePopMenu;
+  FpopUp.Items.Add(FInsert);
+  FpopUp.Items.Add(FDelete);
+  PopupMenu := FpopUp;
+  Fwhere:= '';
+end;
+
+procedure TwtSGSqlUpdate.CreateWnd;
+begin
+  inherited CreateWnd;
+  FIBsqlPost.DataBase:= Database;
+  FIBsqlPost.Transaction:= Transaction;
+end;
+
+destructor TwtSGSqlUpdate.Destroy;
+begin
+  FIBsqlPost.Free;
+  inherited Destroy;
+end;
+
+(*function TwtSGSqlUpdate.EseguiSql(st,errore: string):boolean;
+begin
+ result:= True;
+ if FIBsqlexe.DataBase = NIL Then
+  begin
+   FIBsqlexe.DataBase:= Database;
+   FIBsqlexe.Transaction:= Transaction;
+  end;
+ FIBsqlexe.Close;
+ FIBsqlexe.SQL.Clear;
+ FIBsqlexe.SQL.Add(st);
+ try
+  FIBsqlexe.Execute;
+  FIBsqlexe.Transaction.CommitRetaining;
+ except
+  on e: Exception do
+   begin
+    result:= False;
+    if Foperazione = OpEdit then
+      Cells[Col,Row] :=  Ffields.Items[col].Value;
+    Showmessage(e.Message + ' ' + errore);
+   end;
+ end;
+
+end;  *)
+
+function TwtSGSqlUpdate.UpDateDB:Boolean;
+Var st,NewValue,CheckedValue:string;
+begin
+ result:= True;
+ Fwhere := '';
+ // controllo se il dato da modificare è cambiato rispetto a quello precedente
+ if Cells[FOldCellValue.Col,FOldCellValue.Row] <> FOldCellValue.Value then
+   begin
+     // metto il valore nuovo nella variabile NewValue
+     NewValue:= Cells[FOldCellValue.Col,FOldCellValue.Row];
+     // controllo il dato modificato in base al tipo di campo e lo metto nella variabile CheckedValue
+     CheckedValue := CheckValueDB(NewValue, Ffields.Items[FOldCellValue.Col].Tipo);
+     // creo la stringa per l'aggiornamento
+     st:= 'Update ' + FindTable(Sql.Text) +  ' set '  +  Ffields.Items[FOldCellValue.Col].Field + ' = ';
+     if CheckedValue <>  '' then
+       st:= st + '''' +  CheckedValue + ''' where '
+     else
+      st:= st +  CheckedValue + ' null where ' ;
+     DoDataEntry(Foperazione,FOldCellValue.Row,Ffields,Fwhere); // eseguo l'evento DoDataEntry per controllare la condizione Where
+     if Fwhere = '' then                 // se il campo where è vuoto vuol dire che non è stato modificato dall'evento OndDtaEntry
+       st:= st +  Ffields.WhereToString // quindi come condizione where inserisco tutti i campi con i relativi valori
+     else
+       st := st + Fwhere;
+     if not EseguiSql(FIBsqlPost,st,Execute,'attenzione il valore di ' +  NewValue + ' è sbagliato! riscrivilo! ') then
+      begin
+        result:= False;
+        Row:= FOldCellValue.Row;
+        Col:= FOldCellValue.Col;
+        Cells[FOldCellValue.Col,FOldCellValue.Row]:= FOldCellValue.Value;
+      end;
+   end;
+   Foperazione := OpBrowse;
+end;
+
+
+function TwtSGSqlUpdate.InsertDB:boolean;
+Var st:string;
+    x,riga:integer;
+begin
+ result:= False;
+ //riga:= RowCount - 1; //assegno alla variabile riga la posizione dell'ultima riga
+ if not EmptyRow(row) then // se la riga non è vuota eseguo l'inserimento
+   begin
+     st:= 'Insert into ' + FindTable(Sql.Text) +  ' (';
+     // cancello il contenuto dei campi value della array fflied
+     Ffields.ClearValues;
+     // li sostituisco con i valori della nuova riga creata controllando se il campo non è nascosto
+     for x := 0 to ColCount - 1 do
+      begin
+       if  FoundStr(Columns[x].Title.Caption,HeaderColumn)  then
+         Ffields.Items[x].Enable:= False
+       ELSE
+        Ffields.Items[x].Value:= Cells[x,row]
+      end;
+     DoDataEntry(Foperazione,FOldCellValue.Row,Ffields,Fwhere); // controllo s'è stato assegnato un evento
+     st:= st + Ffields.FieldToString + ') values (' +
+          Ffields.ValueToString + ')';
+     if EseguiSql(FIBsqlPost,st,Execute,'') then
+         result:= True;
+   end
+ else
+    DeleteRow(RowCount - 1);  ; // se la riga è vuota la cancello
+ Foperazione:= OpBrowse;
+end;
+
+procedure TwtSGSqlUpdate.DeletePopMenu(Sender: TObject);
+Var st:string;
+     x:integer;
+begin
+ if (StDelete in StatoUpdate)then
+  begin
+   Foperazione:= OpDelete;
+   // cancello il contenuto dei campi value della array fflied
+   Ffields.ClearValues;
+   // li sostituisco con i valori della nuova riga da cancellare
+   for x := 0 to ColCount - 1 do
+      Ffields.Items[x].Value:= Cells[x,Row];
+   if MessageDlg('Confermi la Cancellazione di ' +  Cells[col,row] + '?',
+      mtConfirmation, [mbYes, mbNo], 0) = mrYes then
+    begin
+      st:= 'Delete From ' + FindTable(Sql.Text) + ' where ';
+      DoDataEntry(Foperazione,FOldCellValue.Row,Ffields,Fwhere); // eseguo l'evento DoDataEntry per controllare la condizione Where
+      if Fwhere = '' then                 // se il campo where è vuoto vuol dire che non è stato modificato dall'evento OndDtaEntry
+       st:= st +  Ffields.WhereToString // quindi come condizione where inserisco tutti i campi con i relativi valori
+      else
+       st := st + Fwhere;
+      if EseguiSql(FIBsqlPost,st,Execute,'') then // cancella il record
+        DeleteRow(Row);  // cancela la riga dal componente StringGrid
+    end;
+  end;
+  Foperazione := OpBrowse;
+end;
+
+
+procedure TwtSGSqlUpdate.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+
+  if (key = VK_DOWN) then
+   begin
+     if (Foperazione = OpEdit) and (StEdit in StatoUpdate) then
+       updateDB
+     else if (Foperazione = OpInsert) and (StInsert in StatoUpdate) and not (EmptyRow) then
+       begin
+       if InsertDB then
+         InsertPopMenu(Self);
+       end
+     else if (Row + 1 = RowCount) and (Foperazione = OpBrowse) then
+        InsertPopMenu(Self);
+   end;
+  if (key = VK_UP) then
+   begin
+    if (Foperazione = OpEdit) and (StEdit in StatoUpdate) then
+       updateDB;
+    if (Foperazione = OpInsert) and (StInsert in StatoUpdate)then
+      begin
+         InsertDB;
+      end;
+   end;
+   if (key = VK_TAB) and (Foperazione = OpEdit) and (StEdit in StatoUpdate) then
+     updateDB;
+   inherited;
+end;
+
+procedure TwtSGSqlUpdate.KeyPress(var Key: Char);
+
+begin
+   // se ho schiacciato il tasto enter e sono in fase di edit e ho i permessi di edit aggiorno
+  if (key = #13) and (Foperazione = OpEdit) and (StEdit in StatoUpdate) then
+     updateDB;
+  // se il tasto è escape
+  if key = #27 then
+   begin
+    if Foperazione = opInsert then DeleteRow(Row);
+    if Foperazione = opEdit then
+    Cells[col,row] := Ffields.Items[col].Value; // ripristino il vecchio valore
+    Foperazione := OpBrowse;
+   end;
+  inherited;
+end;
+
+
+
+procedure TwtSGSqlUpdate.InsertPopMenu(Sender: TObject);
+begin
+if (StInsert in StatoUpdate) and (Foperazione = OpBrowse) and not (EmptyRow) then
+  begin
+   Foperazione := OpInsert;
+   RowCount:= RowCount + 1;
+   Row:= RowCount - 1;
+   col:= 0;
+   DoAfterInsert(Foperazione);
+  end;
+end;
+
+
+
+procedure TwtSGSqlUpdate.DoExit;
+begin
+  if (Foperazione = OpInsert) and (StInsert in StatoUpdate) then
+       InsertDB;
+  if (Foperazione = OpEdit) and (StEdit in StatoUpdate)then
+     UpDateDB;
+  inherited;
+end;
+
+
+procedure TwtSGSqlUpdate.DoDataEntry(operazione: Toperazione; const ARow: Integer; var Fields: TwtListField; var where: string);
+begin
+  if Assigned(FdataEntry) then
+    FDataEntry(Self,operazione,ARow,Fields,where);
+end;
+
+procedure TwtSGSqlUpdate.DoAfterInsert(operazione:Toperazione);
+begin
+  if Assigned(FAfterInsert) then
+    FAfterInsert(Self,operazione);
+end;
+
+
+procedure TwtSGSqlUpdate.SetEditText(ACol, ARow: Longint; const Value: string);
+Var x:integer;
+begin
+  if Foperazione = OpBrowse then
+    begin
+     if EmptyRow then // se la riga è vuota e sto inserendo un dato mi metto in fase di Insert
+       Foperazione := OpInsert
+     else  // altrimenti
+       begin
+         Foperazione := OpEdit;
+         FOldCellValue.Row:= ARow; // Memorizzo la riga  che dovrà essere modificata
+         FOldCellValue.Col:= ACol;
+         FOldCellValue.Value:= Cells[ACol,ARow];
+         // inserisco i valori della riga nell'array dei campi
+         for x := 0 to ColCount - 1 do
+           Ffields.Items[x].Value:= Cells[x,ARow];
+       end;
+    end;
+  inherited;
+end;
+
+procedure TwtSGSqlUpdate.SetStatoUpdate(const Value: TStatoUpdate);
+begin
+  FStatoUpdate := Value;
+  // s'e' stata abilitato inserimento abilito sul popmenu Inserisci
+  if (csFreeNotification in ComponentState) then
+   begin
+    //abilita o disabilita il popmenu in base ai permessi dati al stringgrid
+    self.PopupMenu.Items[0].Enabled := (stInsert in  FStatoUpdate);
+    self.PopupMenu.Items[1].Enabled := (stDelete in  FStatoUpdate);
+   end;
+end;
+
+
+
+
+procedure TwtSGSqlUpdate.MouseDown(Button: TMouseButton; Shift: TShiftState;
+  X: Integer; Y: Integer);
+begin
+  inherited;
+  // se mi sposto con il mouse ed ero in fase di modifica eseguo update
+  if (Foperazione = OpEdit) and  ((Row <>FOldCellValue.Row) or (Col <> FOldCellValue.Col ))then
+    updateDB;
+  if (Foperazione = OpInsert) and (EmptyRow(RowCount - 1)) and (Row <> RowCount - 1) then
+   begin
+     DeleteRow(RowCount - 1);
+     Foperazione:= OpBrowse;
+   end;
+end;
+
+procedure Register;
+begin
+  RegisterComponents('Trita', [TwtSGSqlUpdate]);
+end;
+
+end.

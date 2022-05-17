@@ -1,0 +1,814 @@
+unit umEdit;
+interface
+
+uses
+  {$IFDEF Win32} Windows, {$Else Win32} WinTypes, WinProcs, {$ENDIF Win32}
+  Messages, SysUtils, StdCtrls, Classes, Controls, Graphics,Dialogs, Forms,
+  LSystemTrita;
+
+type
+//
+  TumEdit = class(TEdit)
+  private
+    FEditColor:TColor; // contiene il colore impostato all'edit in fase di design
+    FColorDisabled: TColor;
+    FFocused: Boolean;
+    FAttrib: TAttrib;
+    FTypeFind: string;
+    FShowFocusColor: boolean;
+    FFocusColor: TColor;
+    procedure SetColorDisabled(Value: TColor);
+    procedure WMPaint(var Message: TWMPaint); message WM_PAINT;
+    procedure CMEnter(var Message: TCMEnter); message CM_ENTER;
+    procedure CMExit (var Message: TCMExit ); message CM_EXIT;
+    procedure SetShowFocusColor(const Value: boolean);
+  protected
+    fCanvas    : TControlCanvas;
+    fAlignment : TAlignment;
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure Change; override;
+    function  GetTextMargins: TPoint;
+    procedure SetAlignment(A: TAlignment); virtual;
+    procedure SetFocused(A: Boolean); virtual;
+    function  GetCanvas: TCanvas; virtual;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    property Canvas: TCanvas read GetCanvas;
+  published
+    property Attrib:TAttrib read FAttrib write FAttrib Default DefaultAattrib;
+    property TypeFind:string read FTypeFind write FTypeFind;
+    property Alignment: TAlignment read FAlignment write SetAlignment default taLeftJustify;
+    property ColorDisabled: TColor read FColorDisabled write SetColorDisabled;
+    property ShowFocusColor:boolean read FShowFocusColor write SetShowFocusColor;
+    property FocusColor:TColor read FFocusColor write FFocusColor;
+  end;
+//
+  TumValidEdit = class(TumEdit)
+  private
+    fValidChars    : String;
+    fValidateChars : Boolean;
+    procedure WMChar(var Msg : TWMChar); message WM_CHAR;
+  public
+    constructor Create(AOwner : TComponent);                           override;
+  published
+    property ValidChars: String read fValidChars write fValidChars;
+    property ValidateChars: Boolean read fValidateChars write fValidateChars default True;
+  end;
+//
+  TumNumberEdit = class(TumEdit)
+  private
+    FValidChars: String;
+    Fvalue: Double;
+    FMaxValue: Double;
+    procedure WMChar(var Msg: TWMChar); message WM_CHAR;
+    procedure WMPaint(var Message: TWMPaint); message WM_PAINT;
+  protected
+    procedure Change; override;
+
+  public
+    constructor Create(AOwner : TComponent);  override;
+  published
+    property Value: Double read Fvalue write FValue;
+    property MaxValue: Double read FMaxValue write FMaxValue;
+  end;
+//
+  TValidChars = set of Char;
+  TumDataEdit = class(TumEdit)
+  private
+    DataOld:string;
+    FOnChange: TNotifyEvent;
+    procedure Settext(const Value: TCaption);
+    function  Gettext: TCaption;
+    procedure CMEnter(var Message: TCMEnter); message CM_ENTER;
+  protected
+    FValueIB: string;
+    CarPos:   integer;
+    UltimoCar:string;
+    ValidChars: TValidChars;
+    procedure WMChar(var Msg: TWMChar); message WM_CHAR;
+    procedure DoExit;override;
+    procedure WMKeyDown(var Message: TWMKeyDown); message WM_KEYDOWN;
+    procedure DChanged(Sender: TObject);
+    procedure UpdateData(const value: String; const car:string;  pos: integer);
+    procedure ValidChar(const pos: integer);
+    procedure SetValueIB(const Value: string);
+    function  CheckDate:boolean;
+  public
+    constructor Create(AOwner : TComponent); override;
+    procedure ClearDate;
+  published
+    property OnChange: TNotifyEvent read FOnChange write FOnChange;
+    property ValueIB:string read FvalueIB  write SetValueIB;
+    property Enabled;
+    property Text: TCaption read GetText write SetText;
+  end;
+//
+  TumTimeEdit = class(TumEdit)
+  private
+    FOnChange: TNotifyEvent;
+    procedure Settext(const Value: TCaption);
+    function  Gettext: TCaption;
+    procedure CMEnter(var Message: TCMEnter); message CM_ENTER;
+  protected
+    CarPos:   integer;
+    UltimoCar:string;
+    ValidChars: TValidChars;
+    procedure WMChar(var Msg: TWMChar); message WM_CHAR;
+    procedure DoExit;override;
+    procedure WMKeyDown(var Message: TWMKeyDown); message WM_KEYDOWN;
+    procedure DChanged(Sender: TObject);
+    procedure UpdateTime(const value: String; const car:string;  pos: integer);
+    procedure ValidChar(const pos: integer);
+  public
+    ValueIB: string;
+    constructor Create(AOwner : TComponent); override;
+  published
+    property OnChange: TNotifyEvent read FOnChange write FOnChange;
+    property Enabled;
+    property Text: TCaption read GetText write SetText;
+  end;
+
+
+
+
+
+
+procedure Register;
+
+implementation
+
+const
+  MonthNames:array[1..12] of string =
+    ('Jan','Feb','Mar','Apr','May','Jun',
+    'Jul','Aug','Sep','Oct','Nov','Dec');
+{ BONUS numerical transformation routines}
+
+constructor TumEdit.Create(AOwner: TComponent);
+begin
+  FAlignment := taLeftJustify;
+  FTypeFind := 'Starting';
+  inherited Create(AOwner);
+  FAttrib := DefaultAattrib;
+  FCanvas := TControlCanvas.Create;
+  FCanvas.Control := Self;
+  FColorDisabled := clWindow; // though I prefer clBtnFace;
+  FFocusColor:= $00F7E0D5;
+  FShowFocusColor:= True;
+  FEditColor:=   Color;
+end;
+
+destructor TumEdit.Destroy;
+begin
+  fCanvas.Free;
+  inherited Destroy;
+end;
+
+procedure TumEdit.Notification(AComponent: TComponent;
+                               Operation : TOperation);
+begin
+  inherited Notification(AComponent, Operation);
+end;
+
+procedure TumEdit.Change;
+begin
+  inherited Change;
+{  Invalidate; {!!! WARNING Bug on loosing focus (KARPOLAN)}
+end;
+
+function TumEdit.GetTextMargins : TPoint;
+var
+  DC       : HDC;
+  SaveFont : HFont;
+  i        : Integer;
+  SysMetrics, Metrics : TTextMetric;
+begin
+  if NewStyleControls then
+   begin
+    if BorderStyle = bsNone then i := 0
+    else
+     if Ctl3D then i := 1
+     else i := 2;
+    Result.X := SendMessage(Handle, EM_GETMARGINS, 0, 0) and $0000FFFF + i;
+    Result.Y := i;
+   end
+  else
+   begin
+     if BorderStyle = bsNone then i := 0
+     else
+      begin
+       DC := GetDC(0);
+       GetTextMetrics(DC, SysMetrics);
+       SaveFont := SelectObject(DC, Font.Handle);
+       GetTextMetrics(DC, Metrics);
+       SelectObject(DC, SaveFont);
+       ReleaseDC(0, DC);
+       i := SysMetrics.tmHeight;
+       if i > Metrics.tmHeight then i := Metrics.tmHeight;
+       i := i div 4;
+      end;
+     Result.X := i;
+     Result.Y := i;
+   end;
+end;
+
+procedure TumEdit.SetAlignment(A : TAlignment);
+begin
+  if fAlignment = A then Exit;
+  fAlignment := A;
+  Invalidate;
+end;
+
+procedure TumEdit.SetFocused(A : Boolean);
+begin
+  if FFocused = A then
+    Exit;
+  FFocused := A;
+{  Invalidate; {!!! WARNING Bug on loosing focus (KARPOLAN)}
+end;
+
+function TumEdit.GetCanvas: TCanvas;
+begin
+  Result := TCanvas(fCanvas);
+end;
+
+procedure TumEdit.SetColorDisabled(Value: TColor);
+begin
+  if FColorDisabled <> Value then
+   begin
+    FColorDisabled := Value;
+    Invalidate;
+   end;
+end;
+
+procedure TumEdit.SetShowFocusColor(const Value: boolean);
+begin
+  FShowFocusColor := Value;
+end;
+
+
+procedure TumEdit.WMPaint(var Message : TWMPaint);
+{$IFDEF Delphi4andHigher}
+const
+  AlignStyle : Array[Boolean, TAlignment] Of DWord =
+   ((WS_EX_LEFT , WS_EX_RIGHT, WS_EX_LEFT),
+    (WS_EX_RIGHT, WS_EX_LEFT , WS_EX_LEFT));
+{$ENDIF Delphi4andHigher}
+var
+  ALeft       : integer;
+  Margins     : TPoint;
+  R           : TRect;
+  DC          : HDC;
+  PS          : TPaintStruct;
+  strText     : String;
+  AAlignment  : TAlignment;
+{$IFDEF Delphi4andHigher}
+  ExStyle     : DWord;
+{$ENDIF Delphi4andHigher}
+
+  procedure TryToPaint;
+  begin
+    fCanvas.Font := Font;
+    with fCanvas do
+     begin
+       R := ClientRect;
+       if not (NewStyleControls and Ctl3D) and (BorderStyle = bsSingle) then
+        begin
+          Brush.Color := clWindowFrame;
+          FrameRect(R);
+          InflateRect(R, -1, -1);
+        end;
+       if Enabled then
+         Brush.Color := Color
+       else
+         Brush.Color := ColorDisabled;
+       if not Enabled then Font.Color := clGrayText;
+       strText := Text;
+       if (csPaintCopy in ControlState) then
+        begin
+          case CharCase of
+           ecUpperCase: strText := AnsiUpperCase(strText);
+           ecLowerCase: strText := AnsiLowerCase(strText);
+          end;
+        end;
+       if PasswordChar <> #0
+        then FillChar(strText, Length(strText), PasswordChar);
+       Margins := GetTextMargins;
+       case AAlignment of
+         taLeftJustify: ALeft := Margins.X;
+         taRightJustify: ALeft := ClientWidth - TextWidth(strText) - Margins.X - 1;
+         else ALeft := (ClientWidth - TextWidth(strText)) div 2;
+        end;
+
+{$IFDEF Delphi4andHigher}
+       if SysLocale.MiddleEast then UpdateTextFlags;
+{$ENDIF Delphi4andHigher}
+
+       TextRect(R, ALeft, Margins.Y, strText);
+     end;
+  end;
+
+  procedure PaintDefault;
+  begin
+    DC := Message.DC;
+    if DC = 0 then DC := beginPaint(Handle, PS);
+    fCanvas.Handle := DC;
+    try
+      TryToPaint;
+    finally
+      fCanvas.Handle := 0;
+      if Message.DC = 0 then endPaint(Handle, PS);
+    end;
+  end;
+
+begin
+{** Alignment depend Focused state **}
+  if FFocused then AAlignment := taLeftJustify
+  else AAlignment := FAlignment;
+
+{$IFDEF Delphi4andHigher}
+{** Update RightToLeftAlignment **}
+  if UseRightToLeftAlignment then
+    ChangeBiDiModeAlignment(AAlignment);
+
+  if SysLocale.MiddleEast and HandleAllocated and (IsRightToLeft) then
+   begin { This keeps the right aligned text, right aligned }
+    ExStyle := DWORD(GetWindowLong(Handle, GWL_EXSTYLE)) and (not WS_EX_RIGHT) and
+              (not WS_EX_RTLReadING) and (not WS_EX_LEFTSCROLLBAR);
+    if UseRightToLeftReading then ExStyle := ExStyle or WS_EX_RTLReadING;
+    if UseRightToLeftScrollbar then ExStyle := ExStyle or WS_EX_LEFTSCROLLBAR;
+    ExStyle := ExStyle or AlignStyle[UseRightToLeftAlignment, AAlignment];
+    if DWORD(GetWindowLong(Handle, GWL_EXSTYLE)) <> ExStyle then
+     SetWindowLong(Handle, GWL_EXSTYLE, ExStyle);
+   end;
+{$ENDIF Delphi4andHigher}
+
+  PaintDefault;
+  inherited;
+end;
+
+procedure TumEdit.CMEnter(var Message : TCMEnter);
+begin
+  SetFocused(True);
+  inherited;
+  if ShowFocusColor then
+    begin
+      Color := FFocusColor;
+    end;
+end;
+
+procedure TumEdit.CMExit(var Message : TCMExit);
+begin
+  inherited;
+  SetFocused(False);
+  if ShowFocusColor then
+     Color := FEditColor;
+end;
+
+
+{ TumValidEdit }
+
+constructor TumValidEdit.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FTypeFind := '=';
+  fValidateChars := True;
+end;
+
+procedure TumValidEdit.WMChar(var Msg: TWMChar);
+var
+  i: Integer;
+begin
+  if ValidateChars and (Char(Msg.CharCode) <> #8) then
+   begin
+    i := Length(FValidChars);
+    if i <> 0 then
+     for i := 1 to i do
+      if fValidChars[i] = Char(Msg.CharCode) then inherited
+   end
+  else inherited;
+end;
+
+{ TumNumberEdit }
+
+constructor TumNumberEdit.Create(AOwner : TComponent);
+begin
+  inherited Create(AOwner);
+  FTypeFind := '=';
+ if DecimalSeparator = '.' then
+   FValidChars := '0123456789.-'
+ else
+   FValidChars := '0123456789,-';
+   Text:= '';
+   Value:= 0;
+end;
+
+procedure TumNumberEdit.Change;
+begin
+ if  IsNumeric(text) then
+   Value := StrToFloat(Text);
+ inherited  change;
+end;
+
+
+procedure TumNumberEdit.WMPaint(var Message: TWMPaint);
+Var
+  Rect: TRect;
+begin
+  inherited;
+  if (Text = '') or (Text = '0')then
+   begin
+    Rect := GetClientRect;
+    Canvas.TextRect(Rect,1,2,'0');
+    Value:= 0;
+   end;
+end;
+
+
+
+procedure TumNumberEdit.WMChar(var Msg : TWMChar);
+var
+  i : Integer;
+const
+   Kpunto = 46; Kmeno = 45; Kvirgola = 44;
+begin
+ // if Msg.CharCode = Kvirgola then Msg.CharCode := Kpunto;
+  // controllo che il primo carattere sia un numero o un segno meno
+  if (Msg.CharCode = Kmeno) and (SelStart <> 0) then
+    exit
+  else if Char(Msg.CharCode) = #27 then
+    begin
+     Text := '0';
+     value := -1;
+    end
+   else if Char(Msg.CharCode) = #8 then
+    inherited
+  else
+   begin
+    i := Length(FValidChars);
+    if i <> 0 then
+     for i := 1 to i do
+      if FValidChars[i] = Char(Msg.CharCode) then
+       inherited
+   end;
+end;
+
+{ TwtDataEdit }
+constructor TumDataEdit.Create(AOwner : TComponent);
+begin
+  inherited Create(AOwner);
+  FTypeFind := '=';
+  MaxLength:= 10;
+  Width:= 90;
+  text := '--' + DateSeparator + '--'+ DateSeparator + '----';
+  DataOld:= '';
+  inherited OnChange := DChanged;
+end;
+
+
+
+function TumDataEdit.CheckDate: boolean;
+Var
+ i: Integer;
+begin
+ Result:= True;
+ for i:= 1 to 10 do
+   begin
+    ValidChar(i -1);
+    if not (text[i] in ValidChars) then
+    begin
+     Result:= False;
+     exit;
+    end;
+   end;
+end;
+
+procedure TumDataEdit.SetValueIB(const Value: string);
+Var
+ mese,st: string;
+begin
+ if (pos('-',value) = 0) and (CheckDate) and (Length(value) = 10)then
+  begin
+   st:=  '';
+   if DataOld = '' then DataOld:= value;
+   if (copy(value,4,1) <> '-') and  (copy(value,5,1) <> '-') then
+     begin
+      mese:= Copy(value,4,2);
+      st:= Copy(value,1,2)+ '/' + MonthNames[strtoint(mese)] + '/' +  Copy(value,7,4);
+     end;
+   FValueIB := st;
+  end
+ else
+   FValueIB := '';
+end;
+
+Procedure TumDataEdit.UpdateData(const value: String; const car:string; pos: integer);
+Var
+ p:Byte;
+ st:string;
+ temp:string;
+begin
+ temp:= Text;
+ st:= '';
+ for p:= 0 to 9 do
+   begin
+    if pos = p then
+     st:= st + car
+    else
+      st:= st + copy(temp,p + 1,1);
+   end;
+   Text:= st;
+end;
+
+
+procedure TumDataEdit.ValidChar(const pos: integer);
+begin
+ case pos of
+  0:           ValidChars:= ['0'..'3'];
+  2,5:         ValidChars:= [DateSeparator];
+  1,4,7,8,9:   ValidChars:= ['0'..'9'];
+  3:           ValidChars:= ['0'..'1'];
+  6:           ValidChars:= ['1'..'2'];
+ end;
+ //Controlla se il primo numero del mese è 1
+ if (copy(Text,4,1)  = '1') and (pos = 4)  then
+   ValidChars:= ['0'..'2'];
+ //Controlla se il primo numero del giorno è 3
+ if (copy(Text,1,1)  = '3') and (pos = 1)  then
+   ValidChars:= ['0'..'1'];
+end;
+
+procedure TumDataEdit.WMChar(var Msg : TWMChar);
+begin
+  if (Char(Msg.CharCode) = #8) or (ReadOnly) then
+    exit
+  else if Char(Msg.CharCode) = #27 then
+   begin
+    Text := '--' + DateSeparator + '--'+ DateSeparator + '----';
+    inherited;
+   end
+  else
+   begin
+    ValidChar(SelStart); //in base alla posizione del numero del mese
+                         //stabilisce le cifre che possono essere inserite
+    if (Char(Msg.CharCode) in ValidChars) then
+      begin
+        UltimoCar:= string(Char(Msg.CharCode));
+        if (SelStart = 2) or (SelStart = 5) then  SelStart := SelStart + 1;
+        CarPos:= SelStart;
+        UpdateData(Text,UltimoCar,selstart);
+        if ((CarPos = 1) or (CarPos = 4) and (CarPos < 10)) then
+          selstart:= CarPos + 2
+        else
+          selstart:= CarPos + 1;
+     end;
+//    inherited;
+   end;
+end;
+
+procedure TumDataEdit.DChanged(Sender: TObject);
+label ex;
+begin
+  if (csDesigning in ComponentState) then Exit;
+  if (csLoading in ComponentState) or
+     (csReading in ComponentState) then
+    begin
+     Modified:= False;
+     Exit;
+    end;
+  if Text = '' then
+    begin
+     Text := '--' + DateSeparator + '--'+ DateSeparator + '----';
+     modified:= False;
+     DataOld:= '';
+    end
+  else
+    begin
+      ValueIB:= text;
+      if DataOld <> Text then Modified := True;
+      if Assigned(FOnChange)  then FOnChange(Sender);
+    end;
+end;
+procedure TumDataEdit.ClearDate;
+begin
+  Text := '--' + DateSeparator + '--'+ DateSeparator + '----';
+end;
+
+
+function TumDataEdit.Gettext: TCaption;
+var
+  Len: Integer;
+begin
+  Len := GetTextLen;
+  SetString(Result, PChar(nil), Len);
+  if Len <> 0 then GetTextBuf(Pointer(Result), Len + 1);
+end;
+
+procedure TumDataEdit.Settext(const Value: TCaption);
+begin
+  if GetText <> Value then
+   begin
+     SetTextBuf(PChar(Value));
+   end;
+end;
+
+procedure TumDataEdit.WMKeyDown(var Message: TWMKeyDown);
+begin
+ if Message.CharCode <> 46 then
+   inherited;
+end;
+
+
+procedure TumDataEdit.DoExit;
+Var Pos:Integer;
+begin
+  pos:= SelStart;
+  if Text <> '--' + DateSeparator + '--'+ DateSeparator + '----' then
+    begin
+      if not CheckDate then
+        begin
+         SetFocus;
+         ShowMessage('data non valida');
+         SelStart:= Pos;
+        end;
+    end;
+    inherited;
+end;
+procedure TumDataEdit.CMEnter(var Message: TCMEnter);
+begin
+  inherited;
+  SelStart:= 0;
+end;
+
+
+{ TumTimeEdit }
+
+
+procedure TumTimeEdit.CMEnter(var Message: TCMEnter);
+begin
+  inherited;
+  SelStart:= 0;
+end;
+
+constructor TumTimeEdit.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FTypeFind := '=';
+  MaxLength:= 5;
+  Width:= 60;
+  text := '00:00';
+  ValueIB:= '';
+  inherited OnChange := DChanged;
+end;
+
+
+{function TumTimeEdit.CheckTime: boolean;
+Var
+ i: Integer;
+begin
+ Result:= True;
+ for i:= 1 to 4 do
+   begin
+    ValidChar(i -1);
+    if not (text[i] in ValidChars) then
+    begin
+     Result:= False;
+     exit;
+    end;
+   end;
+end;}
+
+procedure TumTimeEdit.DChanged(Sender: TObject);
+label ex;
+begin
+  if (csDesigning in ComponentState) then Exit;
+  if (csLoading in ComponentState) or
+     (csReading in ComponentState) then
+    begin
+     Modified:= False;
+     Exit;
+    end;
+  if Text = '' then
+    begin
+     Text := '00:00';
+     modified:= False;
+    end
+  else
+    begin
+      if Assigned(FOnChange)  then FOnChange(Sender);
+    end;
+end;
+
+procedure TumTimeEdit.DoExit;
+begin
+    inherited;
+end;
+
+function TumTimeEdit.Gettext: TCaption;
+var
+  Len: Integer;
+begin
+  Len := GetTextLen;
+  SetString(Result, PChar(nil), Len);
+  if Len <> 0 then GetTextBuf(Pointer(Result), Len + 1);
+end;
+
+procedure TumTimeEdit.Settext(const Value: TCaption);
+Var st:string;
+begin
+  if GetText <> Value then
+   begin
+     SetTextBuf(PChar(Value));
+     st:= Copy(Value,1,2) + '.' + Copy(Value,4,2);
+     ValueIB:= st;
+   end;
+end;
+
+procedure TumTimeEdit.UpdateTime(const value, car: string; pos: integer);
+Var
+ p:Byte;
+ st:string;
+ temp:string;
+begin
+ temp:= Text;
+ st:= '';
+ for p:= 0 to 4 do
+   begin
+    if pos = p then
+     st:= st + car
+    else
+      st:= st + copy(temp,p + 1,1);
+   end;
+   Text:= st;
+end;
+
+procedure TumTimeEdit.ValidChar(const pos: integer);
+begin
+ case pos of
+  0: ValidChars:= ['0'..'2'];
+  1: begin
+      if (Text[1] = '0') or (Text[1] = '1') Then
+         ValidChars:= ['0'..'9']
+      else
+         ValidChars:= ['0'..'4'];
+     end;
+  2:           ValidChars:= [':'];
+  3: begin
+       if (Text[4] <> '0') Then
+         ValidChars:= ['0'..'5']
+       else
+         ValidChars:= ['0'..'6'];
+     end;
+  4: begin
+      if (Text[4] = '6') Then
+         ValidChars:= ['0']
+      else
+         ValidChars:= ['0'..'9'];
+     end;
+ end;
+end;
+
+procedure TumTimeEdit.WMChar(var Msg: TWMChar);
+begin
+  if (Char(Msg.CharCode) = #8) or (ReadOnly) then
+    exit
+  else if Char(Msg.CharCode) = #27 then
+   begin
+    Text := '00:00';
+    inherited;
+   end
+  else
+   begin
+    ValidChar(SelStart); //in base alla posizione del numero del mese
+                         //stabilisce le cifre che possono essere inserite
+    if (Char(Msg.CharCode) in ValidChars) then
+      begin
+        UltimoCar:= string(Char(Msg.CharCode));
+        if (SelStart = 2) then  SelStart := SelStart + 1;
+        CarPos:= SelStart;
+        UpdateTime(Text,UltimoCar,selstart);
+        if (CarPos = 1)  then
+          selstart:= CarPos + 2
+        else
+          selstart:= CarPos + 1;
+     end;
+//    inherited;
+   end;
+
+end;
+
+procedure TumTimeEdit.WMKeyDown(var Message: TWMKeyDown);
+begin
+ if Message.CharCode <> 46 then
+   inherited;
+end;
+
+
+procedure Register;
+begin
+  RegisterComponents('Trita', [TumEdit, TumValidEdit,
+                                  TumNumberEdit, TumDataEdit, TumTimeEdit]);
+end;
+
+
+end.

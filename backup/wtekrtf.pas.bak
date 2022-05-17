@@ -1,0 +1,464 @@
+unit WTekrtf;
+
+{$mode objfpc}{$H+}
+
+interface
+
+uses
+  Classes, SysUtils, LResources, Forms, Controls, Graphics, Dialogs, LCLIntf,uibdataset,wtList;
+
+type
+  TDetailEvent = procedure(const ParName: String; var ParValue: String) of object;
+  { TWTekrtf }
+  TWTekrtf = class(TComponent)
+  private
+    FInputFile: string;
+    FOnGetValue: TDetailEvent;
+    FOutputFile: string;
+    FOutFile:TStringList;
+    FLines: TwtList;    // contiene un array bidimenzionale con i valori dei campi da sostituire  codprec  --  funzione -- dataset -- campo  - cod successivo
+    FLinesScan:TwtList; //contiene il numero dell'indice dov'è memorizzato scan e quello dove è memorizzato memorizzato endscan più tutta la stringa sostituida
+  //  procedure SetDateSet(AValue: TUIBDataSet);
+    procedure SetInputFile(AValue: string);
+    procedure SetOutputFile(AValue: string);
+    procedure ElaboraCampo(campo:string;idx:integer); // divide il campo tra  eventuali funzioni campi
+    function  ReplaceDati(idx:integer;Var DataSet:TUIBDataSet):string; // sostituisco il contenuto delle variabili con quelle dell'archivio  passando il dataset relativo
+    function  ExecuteFunction(idx:integer;const value:string):string; //esegue sul campo la funzione inserita nel testo rtf
+    procedure ExecuteScan(var idx:integer;var DataSet:TUIBDataSet); // esegue lo scan ovvero la parte di campi da ripeter piu volte in base la dset impostato
+    procedure ReadFile;     //legge il modello rtf e separa i campi da sostituire
+    function  EstrapolaComando(st:string):string; // leva dal stringa delimitata dai carattere \ \ tutti i comandi rtf non necessari
+    { Private declarations }
+  protected
+    procedure DoGetValue(const ParName: String; var ParValue: String); virtual;
+    { Protected declarations }
+  public
+    constructor Create ( AOwner : TComponent ); override;
+    destructor  Destroy; override;
+    procedure Execute(DataSetArray:array of TUIBDataSet); //esegue l'elaborazione del file da stampare
+    function UpperStart(st:string):string; // trasforma le iniziali di ogni parola della stringa passata in maiuscolo;
+    function UpperFirst(st:string):string; //Trosforma la prima parola in maiuscolo e le altre solo con l'iniziale maiuscola
+
+    { Public declarations }
+  published
+    property InputFile:string read FInputFile write SetInputFile;
+    property OutputFile:string read FOutputFile write SetOutputFile;
+    property OnGetValue: TDetailEvent read FOnGetValue write FOnGetValue;
+    { Published declarations }
+  end;
+
+procedure Register;
+
+{ TWTekrtf }
+implementation
+
+
+procedure Register;
+begin
+  RegisterComponents('Trita',[TWTekrtf]);
+end;
+
+constructor TWTekrtf.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FOutFile:= TStringList.Create;
+  FLines:= TwtList.Create;
+  FLinesScan:= TwtList.Create;
+end;
+
+destructor TWTekrtf.Destroy;
+begin
+  inherited Destroy;
+  FOutFile.Free;
+  FLines.Free;
+  FLinesScan.Free;
+end;
+
+procedure TWTekrtf.SetInputFile(AValue: string);
+begin
+  if FInputFile=AValue then Exit;
+  FInputFile:=AValue;
+end;
+
+
+procedure TWTekrtf.SetOutputFile(AValue: string);
+begin
+  if FOutputFile=AValue then Exit;
+  FOutputFile:=AValue;
+end;
+
+
+procedure TWTekrtf.DoGetValue(const ParName: String; var ParValue: String);
+begin
+  if Assigned(FOnGetValue) then
+    FOnGetValue(ParName, ParValue);
+end;
+
+
+procedure TWTekrtf.Execute(DataSetArray:array of TUIBDataSet);
+Var x,y,StartScan,EndScan,IndDel:integer;
+    DataSet:TUIBDataSet;
+    CarDataSet: char;
+begin
+  ReadFile;
+  x:= 0;
+  while x <= FLines.Count -1 do
+    begin
+      DataSet:= Nil;
+      if (FLines.List[x,2]<> '') and (High(DataSetArray) > -1) then  // s'è FLines.List[x,2] contiene una lettera ed è stato assegno un dataset
+        begin
+           CarDataSet:= FLines.List[x,2][1];   //inserisco nella variabile la lettera di riferimento al dataset "a" primo "b" secondo dataset  ect...
+           DataSet := DataSetArray[ ord(CarDataSet)-97 ];
+        end;
+      if (FLines.List[x,3] <> '') then   //se esiste il campo eseguo la sostituzione
+         FOutFile.Strings[x] := ReplaceDati(x,DataSet);
+
+      if (FLines.List[x,0] = 'scan') then // se mi trovo scan devo ripetere la sostituzione dei campi tante volte quanti sono i records del DataSet
+          ExecuteScan(x,DataSet);
+
+
+      x:= x +1;
+    end;
+  // se trovo un' istruzione scan procedo a cancellare le righe tra scan e endscan e le sostituisco
+  for x := 0 to FLinesScan.Count - 1 do
+   begin
+     StartScan:= StrToInt(FLinesScan.List[x][0]);
+     EndScan :=  StrToInt(FLinesScan.List[x][1]);
+     FOutFile.Strings[StartScan]:= FLinesScan.List[x][2];
+     IndDel:=StartScan + 1;
+     for y:= StartScan + 1 to EndScan  do
+        FOutFile.Strings[y]:= '';
+   end;
+ FOutFile.SaveToFile(OutputFile);
+ OpenDocument(OutputFile);
+end;
+
+//       showmessage(FOutFile.Strings[x]);
+//       ShowMessage( '--0--' +  FLines.List[x,0] + '-1--' +  FLines.List[x,1] + '-2--' +FLines.List[x,2] + '-3--' +FLines.List[x,3] + '-4--' +FLines.List[x,4] + '---' );
+     //  ShowMessage(FOutFile.Strings[x]);
+
+procedure TWTekrtf.ExecuteScan(var idx: integer; var DataSet: TUIBDataSet);
+Var Ind,StartScan,posiz:integer;
+    TempRiga:string;
+begin
+
+  FLinesScan.add(['','','']);   // Nr indice dello Scan  numero indice dell' endscan e stringa che conterrà i dati da sotituire
+  Ind:= FLinesScan.Index;
+  StartScan:= idx; // Indice dove si trova scan
+  FLinesScan.List[Ind][0] := IntToStr(idx); // Nr dell'indice dov'è stata trovata la parola Scan
+  DataSet.Close;
+  DataSet.Open;
+  DataSet.First;
+  while not DataSet.EOF do
+   begin
+     idx:= StartScan + 1; //avanza di una riga quindi passo dopo l'indice che ha memorizzato la parola scan
+     TempRiga:= '';
+     repeat
+       if (FLines.List[idx,3] <> '') then //se esiste il campo da sostituire
+            TempRiga:= TempRiga +  ReplaceDati(idx,DataSet)
+          else
+            TempRiga:= TempRiga + FOutFile.Strings[idx];
+
+       idx:= idx + 1;
+     until FLines.List[idx,0] = 'endscan';
+     FLinesScan.List[Ind][1] := IntToStr(idx); // Nr dell'indice dov'è stata trovata la parola EndScan
+     posiz:= Pos('\par',TempRiga);
+     if posiz > -1 then Delete(TempRiga,posiz,5);  // levo all'inizio della riga il carattere "\par" fine riga
+     FLinesScan.List[Ind][2] := FLinesScan.List[Ind][2] + TempRiga;
+     DataSet.Next;
+   end;
+end;
+
+
+
+
+function TWTekrtf.ReplaceDati(idx: integer; var DataSet: TUIBDataSet): string;
+Var
+   x,TotFields:integer;
+   StrSostituita,campo,value:string;
+begin
+  StrSostituita:='';
+  value:= '';
+  campo:= Uppercase(FLines.List[idx,3]);
+
+  if FLines.List[idx,2] = '' then // se non esiste il riferimento al dataset molto probabilmente si tratta di una variabile
+    begin
+     DoGetValue(campo,StrSostituita);
+      result:= '';
+      if StrSostituita <> '' then
+         result := FLines.List[idx,0] + StrSostituita + FLines.List[idx,4]
+     // else
+    //     result := FLines.List[idx,0] + campo +   FLines.List[idx,4]
+    end
+  else
+  begin
+    if Assigned(DataSet) then
+     begin
+      TotFields:= DataSet.FieldCount;
+      for x:= 0 to  TotFields - 1 do
+        begin
+          if DataSet.Fields[x].DisplayName = campo then
+           begin
+             value:= DataSet.Fields[x].AsString;
+            if FLines.List[idx,1] <> '' then
+               value:= ExecuteFunction(idx,value);
+            result := FLines.List[idx,0] + value + FLines.List[idx,4];
+          end
+        end;
+     end;
+  end;
+end;
+
+
+procedure TWTekrtf.ElaboraCampo(campo:string;idx: integer);
+Var x,lung:integer;
+   car:char;
+   st:string;
+begin
+  // cerco il nome della funzione che dovrebbe stare prima della parentesi rotonda "("
+  st:= '';
+  campo:= LowerCase(TrimLeft(campo));
+  lung:= Length(campo);
+  for x := 1 to lung do
+   begin
+      car:= campo[x];
+      if car = ':' then                 // se trovo i due punto prima dovrebbe trovarsi la lettera che indetifica il dataset
+        begin
+          FLines.List[idx,2] := st;
+          st:= '';
+        end
+      else if car = '(' then            // se trovo la parentesi (, prima dovrebbe trovarsi il nome di una funzione
+        begin
+          FLines.List[idx,1] := st;
+          st:= '';
+        end
+      else if car = ')' then            // se trovo la parentesi (, prima dovrebbe trovarsi il nome di una funzione
+        begin
+          if Length(st) = 1 then        // significa che la stringa è la parte mancante del comando scan()
+            FLines.List[idx,2] := st    // inserisco nell'array l'identificativo del dataset
+          else                          //la stringa prima della parentesi ) dovrebbe rappresentare il nome del campo
+            FLines.List[idx,3] := st;
+          st:= '';
+         end
+      else
+        st:= st + car;
+   end;
+  if copy(st,1,4) = 'scan' then    // se il nome del campo è endscan allora la inserisco come funzione
+    begin
+     FLines.List[idx,0] := copy(st,1,4);
+     FLines.List[idx,2] := Trim(copy(st,5)); //copio la lettera dopo la parola scan esempio <scan a>
+    end
+  else if st = 'endscan' then    // se il nome del campo è endscan allora la inserisco come funzione
+     FLines.List[idx,0] := st
+  else if st <> '' then  // se la variabile st contiene dei dati molto probabilmente dovrebbe essere   il nome del campo
+     FLines.List[idx,3] := st;
+ // ShowMessage( '--0--' +  FLines.List[idx,0] + '-1--' +  FLines.List[idx,1] + '-2--' +FLines.List[idx,2] + '-3--' +FLines.List[idx,3] + '-4--' +FLines.List[idx,4] + '---' );
+end;
+
+
+
+
+//  ShowMessage( '--0--' +  FLines.List[idx,0] + '-1--' +  FLines.List[idx,1] + '-2--' +FLines.List[idx,2] + '-3--' +FLines.List[idx,3] + '-4--' +FLines.List[idx,4] + '---' );
+
+procedure TWTekrtf.ReadFile;
+Var
+   stream:TFileStream;
+   InFile:TStringList;
+   oneline,campo,NewLine:string;
+   x,nrCar:integer;
+   stopCampo:boolean;
+begin
+   InFile := TStringList.Create;
+   stream := TFileStream.Create(InputFile, fmOpenRead or fmShareDenyNone);
+   InFile.Clear;
+   InFile.LoadFromStream(stream);
+   stream.Free;
+   oneLine := InFile.Text;
+   FreeAndNil(InFile);
+   FOutFile.Clear;
+   FLines.clear;
+   FLinesScan.clear;
+   NewLine:= ''; campo:= '';
+   stopCampo:= false;
+   nrCar:= Length(oneline);
+   x:= 1;
+   while x <= nrCar do
+   begin
+     if (oneline[x] = '<')  then
+       begin
+         if NewLine <> '' then
+            FOutFile.Add(NewLine);
+         Inc(x); campo:= '';
+         while oneline[x] <> '>' do
+           begin
+             campo:= campo + oneline[x];
+             Inc(x);
+           end;
+         stopCampo:= false;
+         FLines.add(['','','','','']);
+         campo:= EstrapolaComando(campo);
+         FOutFile.Add(campo);
+         FLines.add(['','','','','']);
+         ElaboraCampo(campo,FLines.Index);
+         NewLine:= '';
+       end
+       else
+         NewLine:= Newline + oneline[x];
+       Inc(x);
+   end;
+   if NewLine <> '' then
+     FOutFile.Add(NewLine);
+end;
+
+function TWTekrtf.EstrapolaComando(st: string): string;
+Var car:char;
+    x,y:integer;
+    p:string;
+begin
+ result:= '';
+ x:= 1;
+ while x <= Length(st) do
+  begin
+    car:= st[x];
+    if car = '\' then // eseguo un ciclo fino a che non trovo uno spazio o di nuovo \
+      begin
+         y:= Length(st);
+         p:= '';
+         while x <= y do
+           begin
+             inc(x);
+             car:= st[x];
+             p:= p + st[x];
+             if (car = ' ') or (car = '\') then
+               begin
+                 y:= 0;
+                 x:= x - 1;
+               end
+             else if p = 'loch' then
+                 y:= 0;
+           end;
+      end
+    else if (car <> '{') and (car <> '}') and not (Ord(car) in [0..32]) then
+      result := result + car;
+    inc(x);
+  end;
+end;
+
+
+
+
+function TWTekrtf.UpperStart(st: string):string;
+ Var x:integer;
+      Space:Boolean;
+      NrAscii:smallint;
+  Const
+     CharMin = [97..122];  // Set Caratteri Minuscoli
+     CharMai = [65..90];   // Set Caratteri Maiuscoli
+     AsciSpace = 32;       // Codice Ascci per lo spazio
+begin
+  Space:= True;
+  for x:= 1 to Length(st) do
+   begin
+     NrAscii:= ord(st[x]);
+     if (Space) and (NrAscii in CharMin) then
+       begin
+         st[x] := Char(NrAscii-32);
+         Space:= False;
+       end
+     else if not (Space) and (NrAscii in CharMai) then
+       st[x] := Char(NrAscii+32)
+     else if  NrAscii = AsciSpace then
+       Space:= True
+     else
+       Space := False;
+     end;
+  Result:= st;
+end;
+
+function TWTekrtf.UpperFirst(st: string): string;
+Var space:integer;
+begin
+   st:= UpperStart(st);
+   space:= pos(' ',st);
+   result:= UpperCase(copy(st,1,space)) + copy( st, space + 1);
+end;
+
+
+
+
+
+
+
+function TWTekrtf.ExecuteFunction(idx: integer; const value: string): string;
+begin
+  result:= '';
+  if FLines.List[idx,1] = 'uppercase' then
+     result:= UpperCase(value)
+  else if FLines.List[idx,1] = 'lowercase' then
+     result := LowerCase(value)
+  else if FLines.List[idx,1] = 'upperstart' then
+     result := UpperStart(value)
+  else if FLines.List[idx,1] = 'upperfirst' then
+     result := UpperFirst(value)
+  else
+    result:= FLines.List[idx,1] + ' non trovata>>>>>>>>>>>>>>> '  ;
+end;
+
+
+
+end.
+
+
+
+
+{
+      if (oneline[x] = '\')  then   // se il carattere letto è backSlash \
+       begin
+         if not StartSeparatore then  // se  StartSeparatore = False
+           begin
+             if not sep then  //se il separatore SEP è False
+                 sep := True
+             else
+               begin
+                 StartSeparatore:= True;
+                 Sep:= False;
+               end;
+           end
+         else // se  StartSeparatore = True
+           begin
+             if not sep then   //se il separatore SEP è False
+               Sep := True
+             else
+               begin
+                 StartSeparatore:= False;
+                 Sep:= False;
+
+                 FOutFile.Add(NewLine);
+                 FLines.add(['','','','','']);
+                 NewLine:='';
+                 campo:= EstrapolaComando(campo);
+                 FOutFile.Add(campo);
+                 FLines.add(['','','','','']);
+                 ElaboraCampo(campo,FLines.Index);
+                 campo:= '';
+               end;
+           end;
+       end
+     else
+       begin
+         if StartSeparatore then //se  StartSeparatore = True
+            begin
+              if Sep then  campo:= campo + '\';  // se la variabile Sep è True aggiungo Backslash
+                begin
+                 campo:= campo + oneline[x];
+             //    ShowMessage(campo);
+                end;
+            end
+         else
+           begin
+             if Sep then  NewLine:= Newline + '\';  // se la variabile Sep è True aggiungo Backslash
+             NewLine:= Newline + oneline[x];
+           end;
+         Sep:= False;
+       end;
+   end;
+ }

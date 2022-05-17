@@ -1,0 +1,148 @@
+unit WTekrtf;
+
+{$mode objfpc}{$H+}
+
+interface
+
+uses
+  Classes, SysUtils, LResources, Forms, Controls, Graphics, Dialogs, LCLIntf,uibdataset;
+
+type
+  TDetailEvent = procedure(const ParName: String; var ParValue: String) of object;
+  { TWTekrtf }
+  TWTekrtf = class(TComponent)
+  private
+    FDateSet: TUIBDataSet;
+    FInputFile: string;
+    FOnGetValue: TDetailEvent;
+    FOutputFile: string;
+    procedure SetDateSet(AValue: TUIBDataSet);
+    procedure SetInputFile(AValue: string);
+    procedure SetOutputFile(AValue: string);
+    function ReplaceDati(campo:string):string;
+    { Private declarations }
+  protected
+    procedure DoGetValue(const ParName: String; var ParValue: String); virtual;
+    { Protected declarations }
+  public
+    procedure Execute; //esegue l'elaborazione del file da stampare
+    { Public declarations }
+  published
+    property InputFile:string read FInputFile write SetInputFile;
+    property OutputFile:string read FOutputFile write SetOutputFile;
+    property OnGetValue: TDetailEvent read FOnGetValue write FOnGetValue;
+    property DateSet: TUIBDataSet read FDateSet write SetDateSet;
+   // property DataSet:
+    { Published declarations }
+  end;
+
+procedure Register;
+
+{ TWTekrtf }
+implementation
+
+procedure Register;
+begin
+  RegisterComponents('Trita',[TWTekrtf]);
+end;
+
+procedure TWTekrtf.SetInputFile(AValue: string);
+begin
+  if FInputFile=AValue then Exit;
+  FInputFile:=AValue;
+end;
+
+procedure TWTekrtf.SetDateSet(AValue: TUIBDataSet);
+begin
+  if FDateSet=AValue then Exit;
+  FDateSet:=AValue;
+end;
+
+procedure TWTekrtf.SetOutputFile(AValue: string);
+begin
+  if FOutputFile=AValue then Exit;
+  FOutputFile:=AValue;
+end;
+
+procedure TWTekrtf.DoGetValue(const ParName: String; var ParValue: String);
+begin
+  if Assigned(FOnGetValue) then
+    FOnGetValue(ParName, ParValue);
+end;
+
+procedure TWTekrtf.Execute;
+Var
+   slFile:TStringList;
+   stream:TFileStream;
+   oneline,campo,NewLine:string;
+   i,x:integer;
+   SlashTrovato: Boolean;
+begin
+   slFile := TStringList.Create;
+
+   begin
+      stream := TFileStream.Create(InputFile, fmOpenRead or fmShareDenyNone);
+      slFile.LoadFromStream(stream);
+      stream.Free;
+      for i := 0 to slFile.Count-1 do
+        begin
+          oneLine := slFile.Strings[i];
+          if pos('/',oneline) > 0 then
+            begin
+               NewLine:= '';
+               campo:= '';
+               SlashTrovato:= False;
+               for x:= 1 to Length(oneline) do
+                 begin
+                   if (oneline[x] = '/') and not(slashTrovato) then
+                      SlashTrovato:= True
+                   else if (oneline[x] <> '/') and (slashTrovato) then
+                     begin
+                        campo:= campo + oneline[x]
+                     end
+                   else if (oneline[x] = '/') and (slashTrovato) then
+                     begin
+                        NewLine:= NewLine + ReplaceDati(campo);
+
+                        campo:= '';
+                        SlashTrovato:= False;
+                     end
+                   else
+                     NewLine:= Newline + oneline[x];
+                 end;
+                 slFile.Strings[i] := NewLine;
+              end;
+        end;
+       slFile.SaveToFile(OutputFile);
+       OpenDocument(OutputFile);
+    end;
+end;
+
+function TWTekrtf.ReplaceDati(campo: string): string;
+Var
+   x,TotFields:integer;
+   StrSostituita:string;
+begin
+  campo:= Trim(campo);
+  result:= '/' + campo + '/';
+  StrSostituita:='';
+  DoGetValue(campo,StrSostituita);
+  if StrSostituita <> '' then
+    result := StrSostituita
+  else
+  begin
+    if Assigned(DateSet) then
+     begin
+      TotFields:= DateSet.FieldCount;
+      for x:= 0 to  TotFields - 1 do
+        begin
+          showmessage(DateSet.Fields[x].DisplayName);
+          if DateSet.Fields[x].DisplayName = campo then
+          result:= DateSet.Fields[x].AsString;
+        end;
+     end;
+  end;
+end;
+
+
+end.

@@ -1,0 +1,93 @@
+unit WDateEdit;
+
+{$mode objfpc}{$H+}
+
+interface
+
+uses
+  {$IFDEF FPC} lMessages, {$ELSE}   Windows, {$ENDIF}
+  Classes, SysUtils, LResources, Forms, Controls, Graphics, Dialogs, EditBtn,
+  LSystemTrita,Messages;
+
+type
+  { TWDateEdit }
+  TWDateEdit = class(TDateEdit)
+  private
+    FAttrib: TAttrib;
+    FTypeFind: string;
+    { Private declarations }
+  protected
+    procedure DoExit; override;
+    function CheckData:Boolean;
+    { Protected declarations }
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    { Public declarations }
+  published
+    property Attrib:TAttrib read FAttrib write FAttrib Default DefaultAattrib;
+    property TypeFind:string read FTypeFind write FTypeFind;
+    { Published declarations }
+  end;
+
+procedure Register;
+
+implementation
+
+
+{ TWDateEdit }
+
+
+procedure TWDateEdit.DoExit;
+begin
+  inherited DoExit;
+  if not CheckData then
+    begin
+      ShowMessage('Data errata');
+      SetFocus;
+    end;
+
+end;
+
+
+function TWDateEdit.CheckData: Boolean;
+Var nr,totale:integer;
+begin
+ result := True;
+ totale:= 0;
+ if text[1] <> ' ' then
+   begin
+     nr:= StrToIntDef(Copy(text,1,2),0);
+     if (nr >= 1) and (nr <= 31) then  totale:= 2;
+
+     nr:= StrToIntDef(Copy(text,4,2),0);
+     if (nr >= 1) and (nr <= 12) then  totale:= totale + 2;
+
+
+     nr:= StrToIntDef(Copy(text,7,4),0);
+     if (nr > 1900) and (nr <= 2999) then  totale:= totale + 2;
+     result:= (totale = 6);
+   end;
+end;
+
+constructor TWDateEdit.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+   FTypeFind := '=';
+   FAttrib := DefaultAattrib;
+   Cursor:= crHandPoint;
+   DateOrder:= doDMY;
+end;
+
+destructor TWDateEdit.Destroy;
+begin
+  inherited Destroy;
+end;
+
+
+procedure Register;
+begin
+  RegisterComponents('Trita',[TWDateEdit]);
+end;
+
+end.

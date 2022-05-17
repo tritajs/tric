@@ -1,0 +1,733 @@
+unit WtStringGridSql;
+
+interface
+
+uses
+  {$IFDEF MSWINDOWS} Windows,Variants, {$ENDIF} SysUtils, Classes, Graphics, Controls, Forms, Dialogs,
+  Grids, UIB,LSystemTrita,WTComboBoxSql,WTCheckBox,umEdit,StdCtrls,UIBlib,
+  WTEditComp,WTComboBox,LCLIntf;
+
+
+type
+  TattribCell = record
+   align: TAlignment;
+   Value: string;
+   Name: string;
+   color: Tcolor;
+  end;
+  // definisce un puntatore a metodo per l'evento onFound
+  TFoundEvent = procedure(Sender: TObject; Found:Boolean) of object;
+
+  { TwtStringGridSql }
+
+  TwtStringGridSql = class(TStringGrid)
+  private
+    FActive: Boolean;
+    Fsql: TStrings;
+    FContatore: Boolean;
+    FHeaderColumn: string;
+    FWidthCols: array of integer;
+    FShowHeader: Boolean;
+    FShowNull: Boolean;
+    FColOrder: Boolean;
+    FDecimalColumn: string;
+    fEventFound: TFoundEvent;
+    procedure SetActive(const Value: Boolean);
+    procedure IntestaGrid;
+    procedure CaricaGrid;
+    procedure SetContatore(const Value: Boolean);
+    procedure SqlChange(Sender : TObject);
+    procedure SetSql(const Value: Tstrings);
+    function  GetDatabase: TUIBDataBase;
+    function  GetTransaction: TUIBTransaction;
+    procedure SetDatabase(const Value: TUIBDataBase);
+    procedure SetTransaction(const Value: TUIBTransaction);
+    procedure SetHeaderColumn(const Value: string);
+    function  CheckField(StrSql,field:string):string;
+    procedure SetDecimalColumn(const Value: string);
+    { Private declarations }
+  protected
+    FIBsql: TUIBQuery; //   TIBQuery;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState;
+      X: Integer; Y: Integer); override;
+    procedure DrawCell(ACol: Integer; ARow: Integer; ARect: TRect;
+      AState: TGridDrawState); override;
+   { Protected declarations }
+    procedure  ClearRow(ARow: Integer); //Pulisce e cancella una riga
+  public
+    CellAttrib:TattribCell;
+    FFieldType: array of TUIBFieldType;
+    Found: Boolean; // viene posto a true quando la ricerca ha avuto successo
+    constructor Create (AOwner: TComponent); override;
+    destructor  Destroy; override;
+    procedure   DeleteRow(ARow: Longint); override;
+    procedure   ClearGrid; dynamic;
+    function    EmptyRow(PosRow:integer = 0):Boolean;  // Controlla se la riga è vuota
+    procedure   RowToEdit(Controllo:TWinControl);overload;    //I valori della riga vengono inseriti nei componenti edit del panel
+    procedure   RowToEdit(Controllo:TForm);overload;    //I valori della riga vengono inseriti nei componenti edit della form
+
+    procedure   EditToRow(Controllo:TWinControl; OperazioneSql:ToperazioneSQL);overload; //Inserisce i valori dei campi edit contenuti nel Panel nella riga
+    procedure   EditToRow(Controllo:TForm; OperazioneSql:ToperazioneSQL);overload;//Inserisce i valori dei campi edit contenuti nella Form nella riga
+    function    ValueColName(nome:string;PosRow:integer = 0):String;  // restituisce il valore della cella cercata in base al nome
+    function    PosCol(nome:string):Integer; // restituisce il numero della colonna in base al nome
+
+    { Public declarations }
+  published
+    property Database: TUIBDataBase read GetDatabase write SetDatabase;
+    property Transaction: TUIBTransaction read GetTransaction write SetTransaction;
+    property Active:Boolean read FActive write SetActive default  False;
+    property Contatore: Boolean Read FContatore Write SetContatore;
+    property ColOrder: Boolean Read FColOrder Write FColOrder default True ;
+
+    property Sql:TStrings Read Fsql write Setsql;
+    property HeaderColumn: string Read FHeaderColumn write SetHeaderColumn; // Nasconde le colonne non desiderate
+    property DecimalColumn:string Read FDecimalColumn write SetDecimalColumn; // mette i decimali nella colonna specificata
+    property ShowNull: Boolean Read FShowNull Write FShowNull default True; // Mostra nella cella Null quando il campo è tale
+    property OnFound: TFoundEvent read fEventFound write fEventFound;
+    property ShowHeader: Boolean Read FShowHeader Write FShowHeader default True; //visualizza o no la prima riga
+    { Published declarations }
+  end;
+
+ procedure Register;
+
+implementation
+
+uses Variants;
+
+
+
+
+{ TwtStringGridSql }
+
+constructor TwtStringGridSql.Create(AOwner: TComponent);
+begin
+  inherited Create (AOwner);
+  DefaultRowHeight:= 18;
+	Fsql   := TStringList.Create;
+ 	TStringList(Fsql).OnChange :=@SqlChange;
+  FIBsql := TUIBQuery.Create(Self);
+  Found:= False;
+  FShowNull:= True;
+  FColOrder := True;
+  FShowHeader:= True;
+//  Contatore:= False;
+end;
+
+destructor TwtStringGridSql.Destroy;
+begin
+  FIBsql.Free;
+  Fsql.Free;
+  inherited Destroy;
+end;
+
+procedure TwtStringGridSql.IntestaGrid;
+Var x,i,TotFields,StrWidth:integer;
+    Bmp:TBitmap;
+begin
+ SetLength(FFieldType,0);  //azzero il vettore dei campi
+ i:= 0;
+ // pulisce intestazione
+ Bmp := TBitmap.Create; // creo il campo bmp per calcolare
+                        //la lunghezza in pixel dei dati delle colonne
+ if not Active then FIBsql.Open;
+ TotFields:= FIBsql.Fields.FieldCount;
+ //se non devo visualizzare la riga di intestazione
+ if not FShowHeader then
+   RowHeights[0] := -1;
+ if TotFields > 0 then
+  begin
+    SetLength(FWidthCols,TotFields); // creo un vettore contenente la grandezza max delle relative colonne
+    for x := 0 to High(FWidthCols) do FWidthCols[x] := 0; // resetto a 0 i campi del vettore eventualmente inizializzati in precedenza
+    ColCount:= TotFields;
+    if FixedCols = 1 then
+     begin
+      Col:= 1;
+      ColCount:= ColCount + 1;
+      ColWidths[0]:= 12;
+     end
+     else
+      Col:= 0;
+    Bmp.Canvas.Font:= Font;
+    for x:= 0 to  TotFields - 1 do
+    begin
+     // inserisco il tipo di campo nel vettore
+     SetLength(FFieldType,x+1); // Incremento l'array
+     FFieldType[x] := FIBsql.Fields.FieldType[x];
+     ColWidths[Col]:= 0; // porto tutte le colonne nella grandezza pari a 0
+     StrWidth:=  Bmp.Canvas.TextWidth(FIBsql.Fields.AliasName[x]); // restituisce in pixel la lunghezza del testo
+     FWidthCols[Col] := StrWidth; // assegno all'array delle width delle colone il numero di pixel del testo contenuto nell'intestazione
+     if FoundStr(FIBsql.Fields.AliasName[x],HeaderColumn)  then // se il nome della colonna
+       ColWidths[Col]:= -1                                     // è nell'elenco di Headrcolumn
+     else                                                    // la sua grandezza viene posta a 0
+       ColWidths[Col] := FWidthCols[Col] + 10;
+     Cells[Col,i]:=  FIBsql.Fields.AliasName[x];
+     Col := Col + 1;
+    end;
+  end;
+ Bmp.Free;
+end;
+
+procedure TwtStringGridSql.CaricaGrid;
+Var
+Riga,x,TotFields,StrWidth:integer;
+st:string;
+//nr: integer;
+Bmp:TBitmap;
+begin
+  // carice grid
+  // nr:= 0;
+  Bmp := TBitmap.Create; // creo il campo bmp per calcolare
+                         //la lunghezza in pixel dei dati delle colonne
+  TotFields:= FIBsql.Fields.FieldCount;
+  RowCount:=2;
+  Row:= 2;
+  // pulisce stringgrid
+  ClearGrid;
+  while not FIBsql.Eof do
+   begin
+    if FixedCols = 1 then
+      Col:= 1
+     else
+      Col:= 0;
+    for x:= 0 to  TotFields - 1 do
+     begin
+     if (FIBsql.Fields.IsNull[x]) and (FShowNull) then
+       st:='<null>'
+     else
+       st:= FIBsql.Fields.AsString[x];
+     if FoundStr(FIBsql.Fields.AliasName[x],FDecimalColumn) then // se nel campo FDecimalColumn è contenuto il nome gli assegno i decimali
+        st:=  InsDecimal(st);
+     if FoundStr(FIBsql.Fields.AliasName[x],HeaderColumn) then // se il nome della colonna
+       ColWidths[Col]:= -1                                     // è nell'elenco di Headcolumn
+     else                                                    // la sua grandezza viene posta a -1
+      begin
+        StrWidth:=  Bmp.Canvas.TextWidth(st); // restituisce in pixel la lunghezza del testo
+        if StrWidth > FWidthCols[Col] then
+          begin
+           FWidthCols[Col] := StrWidth;
+           ColWidths[Col] := FWidthCols[Col] + 10;
+          end;
+      end;
+      Cells[Col,Row] := st;
+      Col := Col + 1;
+     end;
+    FIBsql.Next;
+    if not FIBsql.Eof then
+       begin
+         RowCount:= RowCount + 1;
+         Row:= RowCount;
+
+       end;
+   end;
+   Row:= 1;
+   Bmp.Free;
+end;
+
+procedure TwtStringGridSql.ClearGrid;
+Var x:integer;
+begin
+   // pulisce stringgrid
+  RowCount:= 2;
+  for x:= 0 to ColCount - 1 do
+      Cells[x,1]:= '';
+  Row:= 1;    
+end;
+
+
+procedure TwtStringGridSql.SetActive(const Value: Boolean);
+begin
+  if Value then
+  begin
+   Found := False;
+   if SQL.Text <> '' then
+    begin
+     //controllo se il campo da visualizzare è presente nell' istruzione sql
+     FIBsql.Close;
+     ClearGrid;
+     //se esistzone dei parametri esegue una ricerca con parametri
+     if FIBsql.Params.FieldCount > 0 then FIBsql.Params.AsString[0]:= Text;
+     // trova la posizione del campo da visualizzare
+     FIBsql.Open;
+     IntestaGrid;
+     // se sono statitrovati dei records
+     if FIBsql.Fields.RecordCount > 0 then
+      begin
+        Found:= True;
+        CaricaGrid;
+        FActive := True;
+      end
+     else
+      begin
+       FActive := False;
+       Found:= False;
+      end;
+      // eseguo l'evento onfound da attivare dopo la ricerca dei dati
+      if Assigned(fEventFound) then
+       fEventFound(Self,Found);
+    end;
+  end
+  else
+   begin
+     ClearGrid;
+     FActive := False;
+   end;
+ Col:= 0 // porto il cursore alla colonna 1
+end;
+
+procedure TwtStringGridSql.SetContatore(const Value: Boolean);
+begin
+{  FContatore := Value;
+  Active:= False;
+  if value then
+   FixedCols:= 1
+  else
+   FixedCols:= 0;
+  IntestaGrid;}
+end;
+
+
+procedure TwtStringGridSql.SqlChange(Sender: TObject);
+begin
+  FIBsql.SQL.Assign(Fsql);
+end;
+
+
+procedure TwtStringGridSql.SetSql(const Value: Tstrings);
+begin
+  Fsql.Assign(Value);
+end;
+
+function TwtStringGridSql.GetDatabase: TUIBDataBase;
+begin
+ Result:= FIBsql.DataBase;
+end;
+
+function TwtStringGridSql.GetTransaction: TUIBTransaction;
+begin
+ Result:= FIBsql.Transaction;
+end;
+
+procedure TwtStringGridSql.SetDatabase(const Value: TUIBDataBase);
+begin
+ FIBsql.DataBase:= Value;
+end;
+
+procedure TwtStringGridSql.SetTransaction(const Value: TUIBTransaction);
+begin
+ FIBsql.Transaction := Value;
+end;
+
+procedure TwtStringGridSql.SetHeaderColumn(const Value: string);
+begin
+  FHeaderColumn := UpperCase(Value);
+end;
+
+procedure TwtStringGridSql.MouseDown(Button: TMouseButton; Shift: TShiftState;
+  X: Integer; Y: Integer);
+Var
+  Column, vRow: Longint;
+  PosOrder:integer;
+  st,NomeIndice:string;
+begin
+  vRow:= 0;
+  Column:=0;
+  MouseToCell(X, Y, Column, vRow);
+  if (vRow = 0) and (FColOrder ) then // se ci sono più righe e il flag ColOrder è True
+   begin
+     st:= FIBsql.SQL.Text;
+     // controllo il nome dell'indice s'è stato modificato con l'ustruzione AS
+     NomeIndice := CheckField(st,Cells[column,Row]);
+     PosOrder:=  pos('order',st);
+     if PosOrder > 0 then // se nell'istruzione sql esiste il comando order
+        st := copy(st,0,PosOrder -1); // prendo l'istruzione sql senza il comando order
+     // aggiungo il nuovo indice preso dal titolo della colonna
+     // s'è stato premuto il tasto sinistro del mouse in mode ASC con quello destro DESC
+     if ssLeft in Shift then
+       st:= st + 'order by ' + NomeIndice + ' ASC'
+     else
+       st:= st + 'order by ' + NomeIndice + ' DESC';
+     FIBsql.SQL.Text:= st;  // inserisco la nuova istruzione sql per il grid
+     Active:= True; // la eseguo
+   end;
+   inherited MouseDown(Button,Shift,X,Y);
+end;
+
+// Contralla l'struzione sql se i campi sono modificati con l'istruzione AS
+function TwtStringGridSql.CheckField(StrSql, field: string): string;
+Var PosField:integer;
+    NewField:string;
+    FieldTemp:string;
+  // funzione che ricerca il campo precedente
+  function PrecField:string;
+  Var x:integer;
+   begin
+     for x:= PosField - 1 downto 0 do // vado a ritroso finchè non trovo un carattere
+      begin
+       if StrSql[x] <> ' ' then
+        begin
+         PosField := x;
+         Break;
+        end;
+      end;
+     NewField:= ''; // azzero il campo per inserire quello nuovo
+     for x:= PosField  downto 0 do // una volta trovato l'inizio del campo vado a ritroso
+      begin                        // finchè non trovo uno spazio o la virgola
+       if (StrSql[x] = ' ') or (StrSql[x] = ',') then
+        begin
+         PosField := x;
+         Break;
+        end
+       else
+         Newfield:= StrSql[x] + Newfield
+      end;
+     result:= NewField;
+    end;
+begin
+ field:= UpperCase(field); // trasformo in maiuscolo sia il campo che l'istruzione sql
+ StrSql:= UpperCase(StrSql);
+ NewField:='';
+ StrSql:= Copy(StrSql,7,Pos('FROM',StrSql) - 7); // Prendo la stringa che va dal Select al From
+ PosField:= Pos(field + ' ',StrSql); // controllo se il nome è seguito da uno spazio
+ if PosField = 0 then // se non è seguito da uno spazio
+   PosField:= Pos(field + ',',StrSql);// controllo il nome s'è seguito da una virgola
+ FieldTemp:= PrecField;
+ if FieldTemp = 'AS' then
+   Result:= PrecField // se il campo precedente è AS, prende la stringa precedente ad AS
+ else if Pos('.',FieldTemp) > 0 then
+   Result:= FieldTemp + field // se il campo precedente contiene un punto vuol dire ch'è l'alias della tabella
+ else
+  Result:= field;
+end;
+
+
+procedure TwtStringGridSql.DrawCell(ACol: Integer; ARow: Integer; ARect: TRect;
+  AState: TGridDrawState);
+Var r: TRect;
+begin
+  CellAttrib.align:= taLeftJustify;
+  if ARow > 0 then // se la riga è maggiore di 0 assegno il valora della cella
+    CellAttrib.Value:= Cells[Acol,ARow]
+  else
+    CellAttrib.Value:='';
+
+  CellAttrib.Name:=  Cells[Acol,0];
+  CellAttrib.color:= clBlack;
+  inherited DrawCell(ACol, ARow, ARect, AState);
+if ARow > 0 then
+ begin
+  if Cells[Acol,ARow] = '<null>' then
+     CellAttrib.color := clBlue;
+  // assegno valori della cella al field FCellAttrib
+  if (CellAttrib.align <> taLeftJustify) or (CellAttrib.color <> clBlack) then
+   begin
+     Canvas.Font.Color:= CellAttrib.color;
+     r := ARect;
+     r.Top := r.Top + 2;
+     r.Bottom := r.Bottom - 2;
+     r.left := r.left + 2;
+     r.Right := r.Right - 2;
+     FillRect(Canvas.Handle, ARect, Canvas.Brush.Handle);
+     if CellAttrib.align =  taRightJustify then
+       DrawText(Canvas.Handle, PChar(CellAttrib.Value), -1, r, DT_RIGHT)
+     else if CellAttrib.align =  taCenter then
+       DrawText(Canvas.Handle, PChar(CellAttrib.Value), -1, r, DT_CENTER)
+     else
+       DrawText(Canvas.Handle, PChar(CellAttrib.Value), -1, r, DT_LEFT);
+   end;
+ end;
+end;
+
+// inserisce i valori della riga nei componenti controllando solo quelli del Panel
+procedure TwtStringGridSql.RowToEdit(Controllo: TWinControl);
+Var x,NrCol,NrComp:integer;
+begin
+ for x := 0 to Controllo.ControlCount - 1 do
+  begin
+   for NrCol := 0 to ColCount - 1 do
+     begin
+       // se il componente è TWTComboBoxSql
+       if Controllo.Controls[x].ClassName = 'TWTComboBoxSql'  then
+         begin
+           if TWTComboBoxSql(Controllo.Controls[x]).LookDisplay = Cells[NrCol,0]  then
+               TWTComboBoxSql(Controllo.Controls[x]).Value := Cells[NrCol,Row];
+           if TWTComboBoxSql(Controllo.Controls[x]).Name = Cells[NrCol,0]  then
+               TWTComboBoxSql(Controllo.Controls[x]).ValueLookField := Cells[NrCol,Row];
+         end
+       // se il componente è TWTCheckBox
+       else if (Controllo.Controls[x].ClassName = 'TWTCheckBox') and
+          (Controllo.Controls[x].Name =  Cells[NrCol,0])  then
+         begin
+           if Cells[NrCol,Row] = 'T' then
+             TWTCheckBox(Controllo.Controls[x]).Checked := True
+           else
+             TWTCheckBox(Controllo.Controls[x]).Checked := False;
+         end
+        // se il componente è TWTComboBox
+       else if (Controllo.Controls[x].ClassName = 'TWTComboBox') and
+               (UpperCase(Controllo.Controls[x].Name) =  Cells[NrCol,0])   then
+         begin
+           if Trim(Cells[NrCol,Row]) = '' then
+             // TWTComboBox(Controllo.Controls[x]).ItemIndex := -1
+           else
+             TWTComboBox(Controllo.Controls[x]).ItemIndex := StrToInt(Cells[NrCol,Row]);
+         end
+       //s'è differente dai componenti precedenti controllo il nome del componente
+       else if UpperCase(Controllo.Controls[x].Name) = Cells[NrCol,0]  then
+              TCustomEdit(Controllo.Controls[x]).Text := Cells[NrCol,Row];
+     end;
+  end;
+ // se nel contenitore Panel su cui ho aggiornato i valori degli edit è presente un
+ // componente   editcomp, aggiorno quest'ultimo con i nuovi valori  degli edit.
+ for NrComp := 0 to Controllo.ComponentCount - 1 do
+   begin
+     if Controllo.Components[NrComp].ClassNameIs('TWTEditComp') then
+       begin
+        TwtEditComp(Controllo.Components[NrComp]).Refresh;
+        exit;
+       end;
+    end;
+
+end;
+
+// inserisce i valori della riga nei componenti controllando tutti i componenti della Form
+procedure TwtStringGridSql.RowToEdit(Controllo: TForm);
+Var x,NrCol,NrComp:integer;
+begin
+  for x := 0 to Controllo.ComponentCount - 1 do
+  begin
+   for NrCol := 0 to ColCount - 1 do
+     begin
+       // se il componente è TWTComboBoxSql
+       if Controllo.Components[x].ClassName = 'TWTComboBoxSql'  then
+         begin
+           if TWTComboBoxSql(Controllo.Components[x]).LookDisplay = Cells[NrCol,0]  then
+               TWTComboBoxSql(Controllo.Components[x]).Value := Cells[NrCol,Row];
+           if TWTComboBoxSql(Controllo.Components[x]).Name = Cells[NrCol,0]  then
+               TWTComboBoxSql(Controllo.Components[x]).ValueLookField := Cells[NrCol,Row];
+         end
+       // se il componente è TWTCheckBox
+       else if (Controllo.Components[x].ClassName = 'TWTCheckBox') and
+          (Controllo.Components[x].Name =  Cells[NrCol,0])  then
+         begin
+           if Cells[NrCol,Row] = 'T' then
+             TWTCheckBox(Controllo.Components[x]).Checked := True
+           else
+             TWTCheckBox(Controllo.Components[x]).Checked := False;
+         end
+
+       // se il componente è TWTComboBox
+       else if (Controllo.Components[x].ClassName = 'TWTComboBox') and
+               (UpperCase(Controllo.Components[x].Name) =  Cells[NrCol,0])  then
+         begin
+           if Trim(Cells[NrCol,Row]) = '' then
+            //  TWTComboBox(Controllo.Controls[x]).ItemIndex := -1
+           else
+             TWTComboBox(Controllo.Components[x]).ItemIndex := StrToInt(Cells[NrCol,Row]);
+         end
+
+       //s'è differente dai componenti precedenti controllo il nome del componente
+       else if UpperCase(Controllo.Components[x].Name) = Cells[NrCol,0]  then
+              TCustomEdit(Controllo.Components[x]).Text := Cells[NrCol,Row];
+     end;
+  end;
+  // se nella form su cui ho inserito i nuovi valori degli edit è presente un
+  // componente   editcomp, aggiorno quest'ultimo con i nuovi valori  degli edit.
+ for NrComp := 0 to Controllo.ComponentCount - 1 do
+   begin
+     if Controllo.Components[NrComp].ClassNameIs('TWTEditComp') then
+       begin
+        TwtEditComp(Controllo.Components[NrComp]).Refresh;
+        exit;
+       end;
+    end;
+end;
+
+
+// dati presi nel componente Panel
+procedure TwtStringGridSql.EditToRow(Controllo: TWinControl;OperazioneSql:ToperazioneSQL);
+Var x,NrCol,NrIndexCB:integer;
+begin
+ case OperazioneSql of
+  dsCancel:
+    begin
+      DeleteRow(Row);
+      exit;
+    end;
+  dsInsert:
+    begin
+      if Cells[0,0] = '' then Active:= True; // Se la tabella non è stata aperta la apro
+      if (RowCount > 1) and not(EmptyRow)  then
+        begin
+          RowCount:= RowCount + 1;
+          Row:= RowCount - 1;
+        end;
+    end;
+ end;
+ for x := 0 to Controllo.ControlCount - 1 do
+  begin
+   for NrCol := 0 to ColCount - 1 do
+     begin
+       // se il componente è TWTComboBoxSql
+       if Controllo.Controls[x].ClassName = 'TWTComboBoxSql'  then
+         begin
+           if TWTComboBoxSql(Controllo.Controls[x]).LookDisplay = Cells[NrCol,0]  then
+             Cells[NrCol,Row]:= TWTComboBoxSql(Controllo.Controls[x]).Value ;
+           if TWTComboBoxSql(Controllo.Controls[x]).Name = Cells[NrCol,0]  then
+             Cells[NrCol,Row] := TWTComboBoxSql(Controllo.Controls[x]).ValueLookField;
+         end
+       // se il componente è TWTComboBox
+       else if (Controllo.Controls[x].ClassName = 'TWTCheckBox') and
+          (Controllo.Controls[x].Name =  Cells[NrCol,0])  then
+         begin
+           if TWTCheckBox(Controllo.Controls[x]).Checked then
+             Cells[NrCol,Row] := 'T'
+           else
+             Cells[NrCol,Row] := 'F'
+         end
+       // se il componente è TWTComboBox
+       else if (Controllo.Controls[x].ClassName = 'TWTComboBox') and
+          (Controllo.Controls[x].Name =  Cells[NrCol,0])  then
+         begin
+           NrIndexCB:= TWTComboBox(Controllo.Controls[x]).ItemIndex;
+           Cells[NrCol,Row] :=  TWTComboBox(Controllo.Controls[x]).Items[NrIndexCB]
+         end
+       //s'è differente dai componenti precedenti controllo il nome del componente
+       else if UpperCase(Controllo.Controls[x].Name) = Cells[NrCol,0]  then
+             Cells[NrCol,Row] := TCustomEdit(Controllo.Controls[x]).Text;
+     end;
+  end;
+end;
+
+// dati presi nella form
+procedure TwtStringGridSql.EditToRow(Controllo: TForm;
+  OperazioneSql: ToperazioneSQL);
+Var x,NrCol,NrIndexCB:integer;
+begin
+ case OperazioneSql of
+  dsCancel:
+    begin
+      DeleteRow(Row);
+      exit;
+    end;
+  dsInsert:
+    begin
+    if Cells[0,0] = '' then Active:= True; // Se la tabella non è stata aperta la apro
+      if (RowCount > 1) and not(EmptyRow)  then
+        begin
+          RowCount:= RowCount + 1;
+          Row:= RowCount - 1;
+        end;
+    end;
+ end;
+ for x := 0 to Controllo.ComponentCount - 1 do
+  begin
+   for NrCol := 0 to ColCount - 1 do
+     begin
+       // se il componente è TWTComboBoxSql
+       if Controllo.Components[x].ClassName = 'TWTComboBoxSql'  then
+         begin
+           if TWTComboBoxSql(Controllo.Components[x]).LookDisplay = Cells[NrCol,0]  then
+             Cells[NrCol,Row]:= TWTComboBoxSql(Controllo.Components[x]).Value ;
+           if TWTComboBoxSql(Controllo.Components[x]).Name = Cells[NrCol,0]  then
+             Cells[NrCol,Row] := TWTComboBoxSql(Controllo.Components[x]).ValueLookField;
+         end
+       // se il componente è TWTComboBox
+       else if (Controllo.Components[x].ClassName = 'TWTCheckBox') and
+          (Controllo.Components[x].Name =  Cells[NrCol,0])  then
+         begin
+           if TWTCheckBox(Controllo.Components[x]).Checked then
+             Cells[NrCol,Row] := 'T'
+           else
+             Cells[NrCol,Row] := 'F'
+         end
+       // se il componente è TWTComboBox
+       else if (Controllo.Components[x].ClassName = 'TWTComboBox') and
+               (UpperCase(Controllo.Components[x].Name) =  Cells[NrCol,0])  then
+         begin
+           NrIndexCB:= TWTComboBox(Controllo.Components[x]).ItemIndex;
+           Cells[NrCol,Row] :=  TWTComboBox(Controllo.Components[x]).Items[NrIndexCB]
+         end
+       //s'è differente dai componenti precedenti controllo il nome del componente
+       else if UpperCase(Controllo.Components[x].Name) = Cells[NrCol,0]  then
+             Cells[NrCol,Row] := TCustomEdit(Controllo.Components[x]).Text;
+     end;
+  end;
+end;
+
+
+// cerco il numero della colonna in base al nome
+function TwtStringGridSql.PosCol(nome: string): Integer;
+Var NrCol:Integer;
+begin
+   nome:= UpperCase(nome);
+   // cerco il nome nella riga di intestazione
+   result := -1;
+   for NrCol := 0 to ColCount - 1 do
+     begin
+      if  Cells[NrCol,0] = nome then
+        begin
+         Result :=  NrCol;
+         break;
+        end;
+     end;
+end;
+
+
+// restituisco il valore della cella in base al nome e alla riga data
+function TwtStringGridSql.ValueColName(nome: string ;PosRow:integer): String;
+Var NrCol:integer;
+begin
+  if PosRow = 0 then PosRow := Row; // se il parametro PosRow è uguale a zero assegno valore riga corrente
+   result:= '';
+   NrCol:= PosCol(nome);
+   if NrCol > -1 then
+      result :=  Cells[NrCol,PosRow];
+end;
+
+
+// Controlla se la riga è vuota
+function TwtStringGridSql.EmptyRow(PosRow:integer):Boolean;
+Var NrCol:Integer;
+begin
+   if PosRow = 0 then PosRow := Row; // se il parametro PosRow è uguale a zero assegno valore riga corrente
+   Result := True;
+   for NrCol := 0 to ColCount - 1 do
+     begin
+      if  Cells[NrCol,PosRow] <> '' then
+        begin
+         Result := False ;
+         break;
+        end;
+     end;
+end;
+
+// Cancella una riga
+procedure TwtStringGridSql.DeleteRow(ARow: Longint);
+begin
+ ClearRow(ARow);  //  pulisco la rigo e successivamnete la cancello
+ if RowCount > 2 then inherited;
+ if ARow < RowCount then // dopo aver cancellato mi posiziono sulla
+   Row:= ARow;            // riga successiva
+ Col:= 0; // mi posiziono sulla prima colonna  
+end;
+
+//Pulisce la riga corrente
+procedure TwtStringGridSql.ClearRow(ARow: Integer);
+Var NrCol:Integer;
+begin
+ for NrCol := 0 to ColCount - 1 do
+     Cells[NrCol,ARow] := ''
+end;
+
+procedure TwtStringGridSql.SetDecimalColumn(const Value: string);
+begin
+  FDecimalColumn := UpperCase(Value);
+end;
+
+procedure Register;
+begin
+  RegisterComponents('Trita', [TwtStringGridSql]);
+end;
+
+
+end.
