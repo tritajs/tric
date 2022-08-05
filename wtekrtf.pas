@@ -104,20 +104,24 @@ begin
   while x <= FLines.Count -1 do
     begin
       DataSet:= Nil;
-      if (FLines.List[x,2]<> '') and (High(DataSetArray) > -1) then  // s'è FLines.List[x,2] contiene una lettera ed è stato assegno un dataset
+      CarDataSet:= '0';
+      if FLines.List[x,2] <> '' then
+         CarDataSet:= FLines.List[x,2][1];   //inserisco nella variabile la lettera di riferimento al dataset "a" primo "b" secondo dataset  ect...
+
+      if (CarDataSet in ['a'..'z','A'..'Z'] ) and (High(DataSetArray) > -1) then  // s'è FLines.List[x,2] contiene una lettera ed è stato assegno un dataset
         begin
-           CarDataSet:= FLines.List[x,2][1];   //inserisco nella variabile la lettera di riferimento al dataset "a" primo "b" secondo dataset  ect...
-           DataSet := DataSetArray[ ord(CarDataSet)-97 ];
+          DataSet := DataSetArray[ ord(CarDataSet)-97 ];
         end;
       if (FLines.List[x,3] <> '') then   //se esiste il campo eseguo la sostituzione
-         FOutFile.Strings[x] := ReplaceDati(x,DataSet);
+        FOutFile.Strings[x] := ReplaceDati(x,DataSet);
 
       if (FLines.List[x,0] = 'scan') then // se mi trovo scan devo ripetere la sostituzione dei campi tante volte quanti sono i records del DataSet
-          ExecuteScan(x,DataSet);
+        ExecuteScan(x,DataSet);
 
 
       x:= x +1;
     end;
+
   // se trovo un' istruzione scan procedo a cancellare le righe tra scan e endscan e le sostituisco
   for x := 0 to FLinesScan.Count - 1 do
    begin
@@ -179,13 +183,16 @@ begin
   StrSostituita:='';
   value:= '';
   campo:= Uppercase(FLines.List[idx,3]);
-
+//  ShowMessage(campo);
+  result := '';
   if FLines.List[idx,2] = '' then // se non esiste il riferimento al dataset molto probabilmente si tratta di una variabile
     begin
      DoGetValue(campo,StrSostituita);
-      result:= '';
       if StrSostituita <> '' then
-         result := FLines.List[idx,0] + StrSostituita + FLines.List[idx,4]
+         result := FLines.List[idx,0] + StrSostituita + FLines.List[idx,4];
+      if result = '' then  // se il risultato è vuto restituisco la stringa tra < >
+        result := FLines.List[idx,0] + '<' + LowerCase(campo) + '>' + FLines.List[idx,4];
+
     end
   else
   begin
@@ -197,11 +204,12 @@ begin
           if DataSet.Fields[x].DisplayName = campo then
            begin
              value:= DataSet.Fields[x].AsString;
-            if FLines.List[idx,1] <> '' then
+             if FLines.List[idx,1] <> '' then
                value:= ExecuteFunction(idx,value);
             result := FLines.List[idx,0] + value + FLines.List[idx,4];
           end
         end;
+      if result = '' then result := FLines.List[idx,0] + '<' + FLines.List[idx,2] + ':' +   LowerCase(campo) + '>' + FLines.List[idx,4]; //se il campo non è stato trovato restituisco il placeholder <campo>
      end;
   end;
 end;
@@ -314,6 +322,11 @@ Var car:char;
 begin
  result:= '';
  x:= 1;
+// ShowMessage(st);
+ st:= StringReplace(st,'{\*\bkmkstart __DdeLink__363_156613563811}','',[rfReplaceAll]);
+ st:= StringReplace(st,'{\*\bkmkend __DdeLink__363_156613563811}','',[rfReplaceAll]);
+// ShowMessage(st);
+
  while x <= Length(st) do
   begin
     car:= st[x];
@@ -339,6 +352,7 @@ begin
       result := result + car;
     inc(x);
   end;
+// ShowMessage(result);
 end;
 
 

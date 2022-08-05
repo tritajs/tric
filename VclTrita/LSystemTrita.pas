@@ -37,8 +37,8 @@ type
   function OreTime(time:string):integer; // restituisce le ore di un campo time
   function MinutiTime(time:string):integer; // restituisce il valore dei minuti di un campo time
   function AddValIntoSql(Value:string;AttribSql:TSetAttribSql;ValueNull:String = 'Null'):string;
-
-
+  function UpperFirst(st: string): string; //la prima lettera della stringa viene posta in Maiuscolo
+  function UpperStart(st: string):string;  //Tutti i primi caratteri delle parole vengono posti in Maiuscolo
 
   const DefaultAattrib = [AtInsert,AtUpdate,AtSay,AtClear,AtMake,AtEnable,AtFind,AtPaste,AtProcedure];
   const  MonthNames:array[1..12] of string = ('Jan','Feb','Mar','Apr','May','Jun',
@@ -524,6 +524,43 @@ begin
     end
   else
     result:= time;
+end;
+
+function UpperFirst(st: string): string;
+Var space:integer;
+begin
+   st:= UpperStart(st);
+   space:= pos(' ',st);
+   result:= UpperCase(copy(st,1,space)) + copy( st, space + 1);
+end;
+
+
+function UpperStart(st: string):string;
+ Var x:integer;
+      Space:Boolean;
+      NrAscii:smallint;
+  Const
+     CharMin = [97..122];  // Set Caratteri Minuscoli
+     CharMai = [65..90];   // Set Caratteri Maiuscoli
+     AsciSpace = 32;       // Codice Ascci per lo spazio
+begin
+  Space:= True;
+  for x:= 1 to Length(st) do
+   begin
+     NrAscii:= ord(st[x]);
+     if (Space) and (NrAscii in CharMin) then
+       begin
+         st[x] := Char(NrAscii-32);
+         Space:= False;
+       end
+     else if not (Space) and (NrAscii in CharMai) then
+       st[x] := Char(NrAscii+32)
+     else if  NrAscii = AsciSpace then
+       Space:= True
+     else
+       Space := False;
+     end;
+  Result:= st;
 end;
 
 end.
