@@ -406,7 +406,8 @@ begin
        else if EditComp[i].ClassName = 'TWTCheckBox' then
          begin
            if TWTCheckBox(Owner.Components[EditComp[i].index]).Checked then
-             ValueField:= 'T'
+              ValueField:= TWTCheckBox(Owner.Components[EditComp[i].index]).ValueChecked;
+            //ValueField:= 'T'
          end
        // se il componente è di tipo ComboBox
        else if EditComp[i].ClassName = 'TWTComboBox' then
@@ -533,9 +534,11 @@ begin
        if (EditComp[i].ClassName = 'TWTCheckBox') then
         begin
          if (TWTCheckBox(Owner.Components[EditComp[i].index]).Checked) then
-           ValueField:= 'T'
+            ValueField:=TWTCheckBox(Owner.Components[EditComp[i].index]).ValueChecked
+            //ValueField:= 'T'
          else
-           ValueField:= 'F'
+            ValueField:=TWTCheckBox(Owner.Components[EditComp[i].index]).ValueUnchecked;
+           //ValueField:= 'F'
         end
        // se il componente è di tipo ComboBox
        else if EditComp[i].ClassName = 'TWTComboBox' then
@@ -545,8 +548,7 @@ begin
        else if EditComp[i].ClassName = 'TWDateEdit'  then
         begin
        //   if TWDateEdit(Owner.Components[EditComp[i].index]).
-          ValueField:=  TWDateEdit(Owner.Components[EditComp[i].index]).Text;
-          ShowMessage(ValueField);
+         ValueField:=  TWDateEdit(Owner.Components[EditComp[i].index]).Text;
          if pos(' ',ValueField) > 0 then
             ValueField:= '';
         end
@@ -621,7 +623,7 @@ begin
              if EditComp[i].name.display = Query.Fields[x].DisplayName then
               begin
                 temp:= Query.FieldByName(EditComp[i].name.display).AsString;
-                if temp = 'T' then
+                if (temp = 'T') or (temp = '1') then
                   TWTCheckBox(Owner.Components[EditComp[i].index]).Checked:= True
                 else
                   TWTCheckBox(Owner.Components[EditComp[i].index]).Checked:= False;
@@ -714,9 +716,11 @@ begin
         if (EditComp[i].ClassName = 'TWTCheckBox') then
          begin
           if TWTCheckBox(Owner.Components[EditComp[i].index]).Checked  then
-           ValueField:= 'T'
+             ValueField:=TWTCheckBox(Owner.Components[EditComp[i].index]).ValueChecked;
+            //ValueField:= 'T'
           else
-           ValueField:= 'F'
+             ValueField:=TWTCheckBox(Owner.Components[EditComp[i].index]).ValueUnchecked;
+            //ValueField:= 'F'
          end
         else if EditComp[i].ClassName = 'TWTComboBox' then
           ValueField:= IntToStr(TWTComboBox(Owner.Components[EditComp[i].index]).ItemIndex)
@@ -821,9 +825,9 @@ begin
      EditCopy[i].ClassName:= EditComp[i].ClassName;
      if EditComp[i].ClassName = 'TWTCheckBox' then
        if TWTCheckBox(Owner.Components[EditComp[i].index]).Checked then
-         EditCopy[i].Value:= 'T'
+         EditCopy[i].Value:= TWTCheckBox(Owner.Components[EditComp[i].index]).ValueChecked
        else
-         EditCopy[i].Value:= 'F'
+         EditCopy[i].Value:= TWTCheckBox(Owner.Components[EditComp[i].index]).ValueUnchecked
      else if EditComp[i].ClassName = 'TWTComboBoxSql' then
        begin
          EditCopy[i].Field:=   TWTComboBoxSql(Owner.Components[EditComp[i].index]).ValueLookField;
@@ -848,7 +852,7 @@ begin
     if AtPaste in  EditComp[i].Attrib then
      begin
        if EditCopy[i].ClassName = 'TWTCheckBox' then
-         if EditCopy[i].value = 'T' then
+         if EditCopy[i].value = TWTCheckBox(Owner.Components[EditComp[i].index]).ValueChecked then
            TWTCheckBox(Owner.Components[EditComp[i].index]).Checked := True
          else
            TWTCheckBox(Owner.Components[EditComp[i].index]).Checked := False
@@ -881,9 +885,9 @@ begin
    begin
      if EditComp[i].ClassName = 'TWTCheckBox' then
        if TWTCheckBox(Owner.Components[EditComp[i].index]).Checked then
-         EditComp[i].Value:= 'T'
+         EditComp[i].Value:= TWTCheckBox(Owner.Components[EditComp[i].index]).ValueChecked
        else
-         EditComp[i].Value:= 'F'
+         EditComp[i].Value:= TWTCheckBox(Owner.Components[EditComp[i].index]).ValueUnchecked
      else if EditComp[i].ClassName = 'TWTComboBoxSql' then
          EditComp[i].Value:=   TWTComboBoxSql(Owner.Components[EditComp[i].index]).Text
      else if EditComp[i].ClassName = 'TWTDateEdit' then
@@ -924,9 +928,9 @@ begin
        if (EditComp[PosTab].ClassName = 'TWTCheckBox') then
         begin
          if (TWTCheckBox(Owner.Components[EditComp[PosTab].index]).Checked) then
-           ValueField:= 'T'
+           ValueField:= TWTCheckBox(Owner.Components[EditComp[PosTab].index]).ValueChecked
          else
-           ValueField:= 'F'
+           ValueField:= TWTCheckBox(Owner.Components[EditComp[PosTab].index]).ValueUnchecked;
         end
        // se il componente è di tipo ComboBox
        else if EditComp[PosTab].ClassName = 'TWTComboBox' then

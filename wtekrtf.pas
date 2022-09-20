@@ -203,10 +203,11 @@ begin
         begin
           if DataSet.Fields[x].DisplayName = campo then
            begin
-             value:= DataSet.Fields[x].AsString;
+             value:= DataSet.Fields[x].AsAnsiString;
              if FLines.List[idx,1] <> '' then
                value:= ExecuteFunction(idx,value);
             result := FLines.List[idx,0] + value + FLines.List[idx,4];
+           // ShowMessage(result);
           end
         end;
       if result = '' then result := FLines.List[idx,0] + '<' + FLines.List[idx,2] + ':' +   LowerCase(campo) + '>' + FLines.List[idx,4]; //se il campo non è stato trovato restituisco il placeholder <campo>

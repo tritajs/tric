@@ -17,9 +17,14 @@ type
     FFocusColor: TColor;
     FEditColor: Tcolor;
     FReadOnly: Boolean;
+    FValueChecked: string;
+    FValueUnchecked: string;
+
     procedure SetReadOnly(const Value: Boolean);
     // procedure WMMouseUp(var Message : TLMMouseEvent) message WM_MOUSEENTER;
     procedure DoChange(var Msg); message LM_CHANGED;
+    procedure SetValueChecked(AValue: String);
+    procedure SetValueUnchecked(AValue: String);
   { Private declarations }
   protected
     Procedure Toggle; Override;
@@ -34,6 +39,9 @@ type
    property ShowFocusColor:boolean read FShowFocusColor write FShowFocusColor;
    property FocusColor:TColor read FFocusColor write FFocusColor;
    property ReadOnly:Boolean read FReadOnly write SetReadOnly;
+   property ValueChecked:String read FValueChecked write SetValueChecked;
+   property ValueUnchecked:String read FValueUnchecked write SetValueUnchecked;
+
   { Published declarations }
   end;
 
@@ -51,6 +59,8 @@ begin
  FAttrib := DefaultAattrib;
  FFocusColor:= $00F7E0D5;
  FShowFocusColor:= True;
+ FValueChecked:= 'T' ;
+ FValueUnchecked:= 'F';
 end;
 
 procedure TWTCheckBox.DoEnter;
@@ -79,8 +89,21 @@ end;
 procedure TWTCheckBox.DoChange(var Msg);
 begin
   if FReadOnly then
-    Checked:= not Checked ;
- end;
+    Checked:= not Checked;
+  DoClickOnChange;
+end;
+
+procedure TWTCheckBox.SetValueChecked(AValue: String);
+begin
+  if FValueChecked=AValue then Exit;
+   FValueChecked:=AValue;
+end;
+
+procedure TWTCheckBox.SetValueUnchecked(AValue: String);
+begin
+  if FValueUnchecked=AValue then Exit;
+  FValueUnchecked:=AValue;
+end;
 
 
 procedure TWTCheckBox.Toggle;
@@ -98,4 +121,4 @@ begin
   RegisterComponents('Trita', [TWTCheckBox]);
 end;
 
-end.
+end.

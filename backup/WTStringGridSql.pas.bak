@@ -36,7 +36,7 @@ type
     FDecimalColumn: string;
     fEventFound: TFoundEvent;
     procedure SetActive(const Value: Boolean);
-    procedure IntestaGrid;
+
     procedure CaricaGrid;
     procedure SetContatore(const Value: Boolean);
     procedure SetFieldsExcluded(AValue: TStrings);
@@ -52,6 +52,7 @@ type
     { Private declarations }
   protected
     FIBsql: TUIBQuery; //   TIBQuery;
+    procedure IntestaGrid;virtual;
     procedure DrawCell(ACol: Integer; ARow: Integer; ARect: TRect;
       AState: TGridDrawState); override;
    { Protected declarations }
@@ -65,7 +66,7 @@ type
     destructor  Destroy; override;
 //    procedure   DeleteRow(ARow: Longint); override;
 //    procedure   ClearGrid; dynamic;
-    function    EmptyRow(PosRow:integer = 0):Boolean;  // Controlla se la riga è vuota
+    function    EmptyRow(PosRow:integer = 0;daCol:integer = 0; aCol:integer = 0):Boolean;  // Controlla se la riga è vuota
     procedure   RowToEdit(Controllo:TComponent);overload;    //I valori della riga vengono inseriti nei componenti edit del panel
     procedure   EditToRow(Controllo:TComponent; OperazioneSql:ToperazioneSQL);overload;//Inserisce i valori dei campi edit contenuti nella Form nella riga
     function    ValueColName(nome:string;PosRow:integer = 0):String;  // restituisce il valore della cella cercata in base al nome
@@ -168,7 +169,8 @@ begin
          if FoundStr(FIBsql.Fields.AliasName[x],HeaderColumn)  then // se il nome della colonna
            Columns[x].Visible:= False;
         end;
-        AutoSizeColumns;
+      //  if FAutosizeCol then
+           AutoSizeColumns;
      end
      else //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>Quando sono state create le colonne dall'utente
        begin
@@ -419,7 +421,7 @@ end;
 
 // inserisce i valori della riga nei componenti controllando solo quelli del Panel
 procedure TwtStringGridSql.RowToEdit(Controllo: TComponent);
-Var x,NrCol,NrIndexCB:integer;
+Var NrCol,NrIndexCB:integer;
     Titolo:string;
     TempControllo: TComponent;
 begin
@@ -466,7 +468,7 @@ end;
 // dati presi nella form
 procedure TwtStringGridSql.EditToRow(Controllo: TComponent;
   OperazioneSql: ToperazioneSQL);
-Var x,NrCol,NrIndexCB:integer;
+Var NrCol,NrIndexCB:integer;
     Titolo:string;
     TempControllo:TComponent;
 begin
@@ -559,12 +561,13 @@ end;
 
 
 // Controlla se la riga è vuota
-function TwtStringGridSql.EmptyRow(PosRow:integer):Boolean;
+function TwtStringGridSql.EmptyRow(PosRow:integer;daCol:integer = 0; aCol:integer = 0):Boolean;
 Var NrCol:Integer;
 begin
    if PosRow = 0 then PosRow := Row; // se il parametro PosRow è uguale a zero assegno valore riga corrente
+   if aCol = 0 then aCol:= ColCount - 1;
    Result := True;
-   for NrCol := 0 to ColCount - 1 do
+   for NrCol := daCol to aCol do
      begin
       if  Cells[NrCol,PosRow] <> '' then
         begin

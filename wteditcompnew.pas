@@ -14,8 +14,8 @@ type
 
   TBeforeFind =   procedure (Sender: Tobject;var CampiValori,CampiWhere, CampiJoin: string; var CheckFiltro:Boolean; var Indice:string; var SelectCustomer:string; var EndOr:string) of object;
 
-  TBeforeUpdate = procedure (Sender: Tobject;var where,CampiValore: string) of object;
-  TBeforeDelete = procedure (Sender: Tobject;var where: string) of object;
+  TBeforeUpdate = procedure (Sender: Tobject;var where,CampiValore,Personale: string) of object;
+  TBeforeDelete = procedure (Sender: Tobject;var where,Personale:string) of object;
   TBeforeInsert = procedure (Sender: Tobject;var Campi,Valori,Personale:string) of object;
   TStato =        procedure (Sender: Tobject;var Operazione: string) of object;
 
@@ -144,8 +144,8 @@ type
 
 
     procedure    DoBeforeInsert(Var Campi,Valori,personale:string);
-    procedure    DoBeforeUpdate(Var where,CampiValore: string);
-    procedure    DoBeforeDelete(Var where: string);
+    procedure    DoBeforeUpdate(Var where,CampiValore,personale: string);
+    procedure    DoBeforeDelete(Var where,personale: string);
     procedure    DoContatore;
     procedure    DoStato;
     procedure    Find(esegui:boolean = True);
@@ -645,10 +645,10 @@ begin
  else if Items[i].ClassName = 'TWTCheckBox' then
    begin
      if TWTCheckBox(Owner.Components[Items[i].index]).Checked then
-       result:= 'T'
+       result:= TWTCheckBox(Owner.Components[Items[i].index]).ValueChecked
      else
        if stato <> dsFilter then
-        result:= 'F'
+        result:= TWTCheckBox(Owner.Components[Items[i].index]).ValueUnchecked;
    end
  // se il componente è di tipo ComboBox
  else if Items[i].ClassName = 'TWTComboBox' then
@@ -943,7 +943,7 @@ begin
       if FReturnInsValue <> '' then
         st:= st + ' RETURNING ' + FReturnInsValue;
       filtro:= st;
-//      showmessage(st);
+  //    showmessage(st);
       if (campi <> '') then
         begin
          FIBsql.SQL.Text:= filtro;
@@ -1119,117 +1119,135 @@ end;
 procedure TwtEditCompNew.Update;
 Var st:string;
     i: integer;
-    campi,CampiValore: string;
+    campi,CampiValore,Personale: string;
     ValueField: string;
     where: string;
     OKfoto:boolean; //controlla s'è presete una foto
 begin
    if not FSetMaxlength then SetMaxlength; //se la variabile FSetMaxLength è falso lancio la funzione SetMaxLength
-   where:= '';
+   where:= ''; Personale:= '';
    OKfoto:= false;
    CampiValore:= ''; //conterra i campi e i relativi valore passati eventualmente per parametro
-   DoBeforeUpdate(where,CampiValore);
-   if CampiValore <> '' then CampiValore:= CampiValore + ','; //se sono stati passati dei parametri aggiungo una virgola perchè verrà eliminata successivamente
-   // se la variabile where è vuota creo in autometico la condizione where
-   if where = '' then   where:= WhereToString;
-   campi:= '';
-   st:= 'Update ' + table + ' Set ' ;
-   // crea i campi da visualizzare
-   for i := 0 to FieldCount - 1 do
-   begin
-    // controlla se il campo ha gli attributi per la modifica
-    if AtUpdate in  Items[i].attrib then
-      begin
-        ValueField:= GetValueObject(i,Items[i].ClassName);
-       if Items[i].value <> ValueField then
-        begin
-          campi:= campi +  Items[i].name + ' = ';
-          // se il componente e di tipo TWTComboBoxSql
-          if Items[i].ClassName = 'TWTComboBoxSql'  then
-           begin
-            // se il valore da inserire e vuoto
-             if ValueField = '' then
-              campi := campi + 'null,'
-            else
-              campi := campi + '''' +  ValueField  + ''','
-           end
-          else if Items[i].ClassName = 'TWDateEdit'  then
-            begin
-             // se la data è vuota
-             if ValueField = '' then
-               campi:= campi + 'null,'
-             else
-               campi:= campi + '''' + DateDB(ValueField)  + ''','
-            end
-          else if Items[i].ClassName = 'TumTimeEdit'  then
-            begin
-             // se l'ora è vuota
-             if ValueField = '00:00' then
-               campi:= campi + 'null,'
-             else
-               campi:= campi + '''' +  ValueField + ''','
-            end
-          else if (Items[i].ClassName = 'TWTimage')  then
-            begin
-              if TWTimage(Owner.Components[Items[I].index]).Fimage.Picture.Bitmap.Empty then //se il campo twtimage è vuoto vuol dire che è stato cancellato
-                 campi:= campi + 'null,'
-              else
-                begin
-                  campi:= campi + ':' + Items[i].name + ',';
-                  Items[i].imageUpdate:= True;
-                  Items[i].image.Clear;
-                  Items[i].image.LoadFromStream(TWTimage(Owner.Components[Items[I].index]).FStream);
-                  TWTimage(Owner.Components[Items[i].index]).modificato:= False;
-                  OKfoto:= True;
-                end;
-            end
-          else if Items[i].ClassName = 'TumNumberEdit'  then
-            begin
-             // se il numero è 0
-             if ValueField = '' then
-               campi:= campi + 'null,'
-             else
-                 campi:= campi +  StringReplace(ValueField,',','.',[rfReplaceAll]) + ','                       // perche firebird accetta il punto come separatore decimale
-            end
-          else
-             campi:= campi + '''' +   CheckValueDB(ValueField,Items[i].Tipo) + ''',';
-        end;
-      end;
-   end;
-   campi:= campi + CampiValore;
-   if campi <> '' then
+   DoBeforeUpdate(where,CampiValore,Personale);
+   if personale = '' then
      begin
-      //levo le ultime virgole da escludere
-      campi:= copy(campi,1,length(campi)-1);
-      st:= st +  campi + ' where ' + where ;
-      filtro:= st;
-      FIBsql.SQL.Text:= st;
-      if OKfoto then // se un campo TWTimage è stato modificato, inseririsco il campo blob nell''istruzione update
-        InsFieldBlob;
+
+       if CampiValore <> '' then CampiValore:= CampiValore + ','; //se sono stati passati dei parametri aggiungo una virgola perchè verrà eliminata successivamente
+       // se la variabile where è vuota creo in autometico la condizione where
+       if where = '' then   where:= WhereToString;
+       campi:= '';
+       st:= 'Update ' + table + ' Set ' ;
+       // crea i campi da visualizzare
+       for i := 0 to FieldCount - 1 do
+       begin
+        // controlla se il campo ha gli attributi per la modifica
+        if AtUpdate in  Items[i].attrib then
+          begin
+            ValueField:= GetValueObject(i,Items[i].ClassName);
+           if Items[i].value <> ValueField then
+            begin
+              campi:= campi +  Items[i].name + ' = ';
+              // se il componente e di tipo TWTComboBoxSql
+              if Items[i].ClassName = 'TWTComboBoxSql'  then
+               begin
+                // se il valore da inserire e vuoto
+                 if ValueField = '' then
+                  campi := campi + 'null,'
+                else
+                  campi := campi + '''' +  ValueField  + ''','
+               end
+              else if Items[i].ClassName = 'TWDateEdit'  then
+                begin
+                 // se la data è vuota
+                 if ValueField = '' then
+                   campi:= campi + 'null,'
+                 else
+                   campi:= campi + '''' + DateDB(ValueField)  + ''','
+                end
+              else if Items[i].ClassName = 'TumTimeEdit'  then
+                begin
+                 // se l'ora è vuota
+                 if ValueField = '00:00' then
+                   campi:= campi + 'null,'
+                 else
+                   campi:= campi + '''' +  ValueField + ''','
+                end
+              else if (Items[i].ClassName = 'TWTimage')  then
+                begin
+                  if TWTimage(Owner.Components[Items[I].index]).Fimage.Picture.Bitmap.Empty then //se il campo twtimage è vuoto vuol dire che è stato cancellato
+                     campi:= campi + 'null,'
+                  else
+                    begin
+                      campi:= campi + ':' + Items[i].name + ',';
+                      Items[i].imageUpdate:= True;
+                      Items[i].image.Clear;
+                      Items[i].image.LoadFromStream(TWTimage(Owner.Components[Items[I].index]).FStream);
+                      TWTimage(Owner.Components[Items[i].index]).modificato:= False;
+                      OKfoto:= True;
+                    end;
+                end
+              else if Items[i].ClassName = 'TumNumberEdit'  then
+                begin
+                 // se il numero è 0
+                 if ValueField = '' then
+                   campi:= campi + 'null,'
+                 else
+                     campi:= campi +  StringReplace(ValueField,',','.',[rfReplaceAll]) + ','                       // perche firebird accetta il punto come separatore decimale
+                end
+              else
+                 campi:= campi + '''' +   CheckValueDB(ValueField,Items[i].Tipo) + ''',';
+            end;
+          end;
+       end;
+       campi:= campi + CampiValore;
+       if campi <> '' then
+         begin
+          //levo le ultime virgole da escludere
+          campi:= copy(campi,1,length(campi)-1);
+          st:= st +  campi + ' where ' + where ;
+          filtro:= st;
+          FIBsql.SQL.Text:= st;
+          if OKfoto then // se un campo TWTimage è stato modificato, inseririsco il campo blob nell''istruzione update
+            InsFieldBlob;
+         end
+       else
+         st:= '';
+
+      end
+      else
+      begin
+         filtro:= personale;
+         FIBsql.SQL.Text:= st;
+      end;
       try
-      //  ShowMessage(st);
+     //   ShowMessage(st);
         FIBsql.Execute;
         FIBsql.Close(etmCommitRetaining);
       except
-       ShowMessage('Operazione non eseguita');
+        ShowMessage('Operazione non eseguita');
       end;
-     end
-   else
-     st:= '';
 end;
 
 
 procedure TwtEditCompNew.Delete;
-Var where,st:string;
+Var where,st,personale:string;
 begin
    if not FSetMaxlength then SetMaxlength; //se la variabile FSetMaxLength è falso lancio la funzione SetMaxLength
-   where:= ''; st:= '';
-   DoBeforeDelete(where);
-   // se la variabile where è vuota creo in autometico la condizione where
-   if where = '' then   where:= WhereToString;
-   st:= 'delete from ' + table + ' where '  + where;
-   filtro:= st;
-   FIBsql.SQL.Text:= st;
+   where:= ''; st:= ''; personale:= '';
+   DoBeforeDelete(where, personale);
+   if personale = '' then
+     begin
+       // se la variabile where è vuota creo in autometico la condizione where
+       if where = '' then   where:= WhereToString;
+       st:= 'delete from ' + table + ' where '  + where;
+       filtro:= st;
+       FIBsql.SQL.Text:= st;
+     end
+     else
+      begin
+       filtro:= personale;
+       FIBsql.SQL.Text:= filtro;
+      end;
    try
      FIBsql.Execute;
      FIBsql.Close(etmCommitRetaining);
@@ -1434,16 +1452,16 @@ begin
     FBeforeInsert(self, Campi, Valori, Personale);
 end;
 
-procedure TwtEditCompNew.DoBeforeUpdate(var where,CampiValore: string);
+procedure TwtEditCompNew.DoBeforeUpdate(var where,CampiValore,Personale: string);
 begin
   if Assigned(FBeforeUpdate) then
-    FBeforeUpdate(self,where,CampiValore);
+    FBeforeUpdate(self,where,CampiValore,Personale);
 end;
 
-procedure TwtEditCompNew.DoBeforeDelete(var where: string);
+procedure TwtEditCompNew.DoBeforeDelete(var where, personale: string);
 begin
   if Assigned(FBeforeDelete) then
-    FBeforeDelete(self,where);
+    FBeforeDelete(self,where, personale);
 end;
 
 procedure TwtEditCompNew.DoContatore;

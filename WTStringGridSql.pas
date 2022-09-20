@@ -440,7 +440,7 @@ begin
        // se il componente è TWTCheckBox
        else if TempControllo.ClassName = 'TWTCheckBox'  then
          begin
-           if Cells[NrCol,Row] = 'T'   then
+           if (Cells[NrCol,Row] = 'T') or (Cells[NrCol,Row] = '1')   then
               TWTCheckBox(TempControllo).Checked := true
            else
              TWTCheckBox(TempControllo).Checked := False
@@ -504,9 +504,9 @@ begin
        else if TempControllo.ClassName = 'TWTCheckBox'  then
          begin
            if TWTCheckBox(TempControllo).Checked then
-             Cells[NrCol,Row] := 'T'
+             Cells[NrCol,Row] := TWTCheckBox(TempControllo).ValueChecked
            else
-             Cells[NrCol,Row] := 'F'
+             Cells[NrCol,Row] := TWTCheckBox(TempControllo).ValueUnchecked;
          end
        // se il componente è TWTComboBox
        else if TempControllo.ClassName = 'TWTComboBox' then
